@@ -195,7 +195,9 @@ class PlotData:
                         > amp_bins[iA]
                     )[0]
                     # Make saturated spikes a very dark purple
-                    spikes_colours[idx] = saturated_color
+                    # Must assign element-by-element for object arrays with tuples
+                    for i in idx:
+                        spikes_colours[i] = saturated_color
                 else:
                     idx = np.where(
                         (
@@ -207,7 +209,9 @@ class PlotData:
                             <= amp_bins[iA + 1]
                         )
                     )[0]
-                    spikes_colours[idx] = tuple(colours[iA])
+                    color_tuple = tuple(colours[iA])
+                    for i in idx:
+                        spikes_colours[i] = color_tuple
 
                 spikes_size[idx] = iA / (A_BIN / 4)
 
