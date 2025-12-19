@@ -1,13 +1,13 @@
+"""Data processing for electrophysiology visualization plots.
+
+This module handles computation and formatting of spike data, LFP signals,
+and other electrophysiology metrics for display in the alignment GUI.
+"""
+
 import logging
 from copy import deepcopy
 
 import numpy as np
-
-# from brainbox.io.spikeglx import Streamer
-# from brainbox.population.decode import xcorr
-# from brainbox.task import passive
-# from neurodsp import voltage
-# import neuropixel
 import scipy
 from matplotlib import cm
 from numpy.typing import NDArray
@@ -74,15 +74,6 @@ class PlotData:
 
         if self.data["clusters"]["exists"]:
             shank_spikes_subset = np.where(self.data["spike_shanks"] == shank_idx)
-            """
-            shank_spikes_clusters = self.data['spikes'].clusters[shank_spikes_subset]
-            shank_units_subset = np.where(self.data['unit_shank_indices'] == shank_idx)
-
-            shank_cluster_channels = self.data['clusters'].channels[shank_units_subset]
-            shank_spike_channels = shank_cluster_channels[shank_spikes_clusters]
-            shank_spikes = np.isin(self.chn_ind_all[self.data['clusters'].channels[self.data['spikes'].clusters]],
-                                  self.chn_ind)"
-            """
             for key in self.data["spikes"].keys():
                 if key == "exists":
                     continue

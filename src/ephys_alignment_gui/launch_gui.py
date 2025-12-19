@@ -1992,6 +1992,8 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
             )
             logger.debug(f"Filtered {len(self.chn_depths)} channels for this shank")
 
+        logger.info("Histology exists: " + str(self.histology_exists))
+
         # Only process histology if it exists
         if self.histology_exists:
             # Load track_annotations_ras for this shank

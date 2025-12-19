@@ -372,7 +372,7 @@ class LoadDataLocal:
         if label_image.GetPixelID() is not sitk.sitkInt32:
             # This is a hack that I need to fix in the processing pipeline
             unq_annotations = np.load(
-                "/data/allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
+                self.data_root / "allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
             )["unique_labels"]
             label_image = expand_compacted_image(label_image, unq_annotations)
         pipeline_image = sitk.ReadImage(self.image_space_paths.pipeline_image_path)

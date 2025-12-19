@@ -1,12 +1,31 @@
+"""Utility functions for data processing and visualization.
+
+This module provides helper functions for histogram computation,
+interpolation, and other numerical operations used throughout
+the ephys alignment GUI.
+"""
+
 import numpy as np
+from numpy.typing import NDArray
 
 
-def _fcn_extrap(x, f, bounds):
+def _fcn_extrap(x: NDArray, f, bounds: list | NDArray) -> NDArray:
     """
-    Extrapolates a flat value before and after bounds
-    x: array to be filtered
-    f: function to be applied between bounds (cf. fcn_cosine below)
-    bounds: 2 elements list or np.array
+    Extrapolate a flat value before and after bounds.
+
+    Parameters
+    ----------
+    x : NDArray
+        Array to be filtered.
+    f : callable
+        Function to be applied between bounds.
+    bounds : list or NDArray
+        Two-element array defining the bounds [lower, upper].
+
+    Returns
+    -------
+    NDArray
+        Filtered array with flat extrapolation outside bounds.
     """
     y = f(x)
     y[x < bounds[0]] = f(bounds[0])
@@ -14,14 +33,24 @@ def _fcn_extrap(x, f, bounds):
     return y
 
 
-def fcn_cosine(bounds):
+def fcn_cosine(bounds: list | NDArray):
     """
-    Returns a soft thresholding function with a cosine taper:
-    values <= bounds[0]: values
-    values < bounds[0] < bounds[1] : cosine taper
-    values < bounds[1]: bounds[1]
-    :param bounds:
-    :return: lambda function
+    Return a soft thresholding function with a cosine taper.
+
+    Creates a function that applies cosine tapering between two bounds:
+    - values <= bounds[0]: 0
+    - bounds[0] < values < bounds[1]: cosine taper from 0 to 1
+    - values >= bounds[1]: 1
+
+    Parameters
+    ----------
+    bounds : list or NDArray
+        Two-element array [lower, upper] defining the taper region.
+
+    Returns
+    -------
+    callable
+        Function that applies the cosine taper to input arrays.
     """
 
     def _cos(x):
@@ -31,24 +60,44 @@ def fcn_cosine(bounds):
     return func
 
 
-def bincount2D(x, y, xbin=0, ybin=0, xlim=None, ylim=None, weights=None):
+def bincount2D(
+    x: NDArray,
+    y: NDArray,
+    xbin: float | NDArray = 0,
+    ybin: float | NDArray = 0,
+    xlim: list | None = None,
+    ylim: list | None = None,
+    weights: NDArray | None = None,
+) -> tuple[NDArray, NDArray, NDArray]:
     """
-    Computes a 2D histogram by aggregating values in a 2D array.
+    Compute a 2D histogram by aggregating values in a 2D array.
 
-    :param x: values to bin along the 2nd dimension (c-contiguous)
-    :param y: values to bin along the 1st dimension
-    :param xbin:
-        scalar: bin size along 2nd dimension
-        0: aggregate according to unique values
-        array: aggregate according to exact values (count reduce operation)
-    :param ybin:
-        scalar: bin size along 1st dimension
-        0: aggregate according to unique values
-        array: aggregate according to exact values (count reduce operation)
-    :param xlim: (optional) 2 values (array or list) that restrict range along 2nd dimension
-    :param ylim: (optional) 2 values (array or list) that restrict range along 1st dimension
-    :param weights: (optional) defaults to None, weights to apply to each value for aggregation
-    :return: 3 numpy arrays MAP [ny,nx] image, xscale [nx], yscale [ny]
+    Parameters
+    ----------
+    x : NDArray
+        Values to bin along the 2nd dimension (columns).
+    y : NDArray
+        Values to bin along the 1st dimension (rows).
+    xbin : float or NDArray, optional
+        If scalar > 0: bin size along 2nd dimension.
+        If 0: aggregate according to unique values.
+        If array: aggregate according to exact values (count reduce operation).
+    ybin : float or NDArray, optional
+        Same as xbin but for 1st dimension.
+    xlim : list, optional
+        Two values [min, max] that restrict range along 2nd dimension.
+    ylim : list, optional
+        Two values [min, max] that restrict range along 1st dimension.
+    weights : NDArray, optional
+        Weights to apply to each value for aggregation.
+
+    Returns
+    -------
+    tuple[NDArray, NDArray, NDArray]
+        (histogram, xscale, yscale) where:
+        - histogram: 2D array of shape [ny, nx]
+        - xscale: 1D array of x bin centers
+        - yscale: 1D array of y bin centers
     """
     # if no bounds provided, use min/max of vectors
     if xlim is None:
@@ -89,88 +138,3 @@ def bincount2D(x, y, xbin=0, ybin=0, xlim=None, ylim=None, weights=None):
         yscale = ybin
 
     return r, xscale, yscale
-
-
-def probes_description(ses_path, one):
-    """
-    Aggregate probes information into ALF files
-    Register alyx probe insertions and Micro-manipulator trajectories
-    Input:
-        raw_ephys_data/probeXX/
-    Output:
-        alf/probes.description.npy
-    """
-
-    eid = one.path2eid(ses_path, query_type="remote")
-    ses_path = Path(ses_path)
-    meta_files = spikeglx.glob_ephys_files(ses_path, ext="meta")
-    ap_meta_files = [(ep.ap.parent, ep.label, ep) for ep in meta_files if ep.get("ap")]
-    # If we don't detect any meta files exit function
-    if len(ap_meta_files) == 0:
-        return
-
-    subdirs, labels, efiles_sorted = zip(*sorted(ap_meta_files))
-
-    def _create_insertion(md, label, eid):
-        # create json description
-        description = {
-            "label": label,
-            "model": md.neuropixelVersion,
-            "serial": int(md.serial),
-            "raw_file_name": md.fileName,
-        }
-
-        # create or update probe insertion on alyx
-        alyx_insertion = {
-            "session": eid,
-            "model": md.neuropixelVersion,
-            "serial": md.serial,
-            "name": label,
-        }
-        pi = one.alyx.rest("insertions", "list", session=eid, name=label)
-        if len(pi) == 0:
-            qc_dict = {"qc": "NOT_SET", "extended_qc": {}}
-            alyx_insertion.update({"json": qc_dict})
-            insertion = one.alyx.rest("insertions", "create", data=alyx_insertion)
-        else:
-            insertion = one.alyx.rest(
-                "insertions",
-                "partial_update",
-                data=alyx_insertion,
-                id=pi[0]["id"],
-            )
-
-        return description, insertion
-
-    # Ouputs the probes description file
-    probe_description = []
-    alyx_insertions = []
-    for label, ef in zip(labels, efiles_sorted):
-        md = spikeglx.read_meta_data(ef.ap.with_suffix(".meta"))
-        if md.neuropixelVersion == "NP2.4":
-            # NP2.4 meta that hasn't been split
-            if md.get("NP2.4_shank", None) is None:
-                geometry = spikeglx.read_geometry(ef.ap.with_suffix(".meta"))
-                nshanks = np.unique(geometry["shank"])
-                for shank in nshanks:
-                    label_ext = f"{label}{chr(97 + int(shank))}"
-                    description, insertion = _create_insertion(md, label_ext, eid)
-                    probe_description.append(description)
-                    alyx_insertions.append(insertion)
-            # NP2.4 meta that has already been split
-            else:
-                description, insertion = _create_insertion(md, label, eid)
-                probe_description.append(description)
-                alyx_insertions.append(insertion)
-        else:
-            description, insertion = _create_insertion(md, label, eid)
-            probe_description.append(description)
-            alyx_insertions.append(insertion)
-
-    alf_path = ses_path.joinpath("alf")
-    alf_path.mkdir(exist_ok=True, parents=True)
-    probe_description_file = alf_path.joinpath("probes.description.json")
-    with open(probe_description_file, "w+") as fid:
-        fid.write(json.dumps(probe_description))
-
-    return [probe_description_file]
