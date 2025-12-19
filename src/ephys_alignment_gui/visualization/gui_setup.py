@@ -2,7 +2,7 @@ from random import randrange
 
 import numpy as np
 import pyqtgraph as pg
-import pyqtgraph.exporters
+from pyqtgraph import exporters
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from ephys_alignment_gui.visualization.plot_elements import replace_axis
@@ -496,20 +496,6 @@ class Setup:
         info_options = menu_bar.addMenu("Session Information")
         info_options.addAction(session_notes)
         info_options.addAction(region_info)
-
-        # Display other sessions that are closeby if online mode
-        if not self.offline:
-            nearby_info = QtWidgets.QAction("Nearby Sessions", self)
-            nearby_info.triggered.connect(self.display_nearby_sessions)
-            info_options.addAction(nearby_info)
-
-            scaling_info = QtWidgets.QAction("Subject Scaling", self)
-            scaling_info.triggered.connect(self.display_subject_scaling)
-            info_options.addAction(scaling_info)
-
-            feature_info = QtWidgets.QAction("Region Feature", self)
-            feature_info.triggered.connect(self.display_region_features)
-            info_options.addAction(feature_info)
 
     def init_slice_menu(self) -> None:
         menu_bar = self.menuBar()

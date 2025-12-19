@@ -27,10 +27,6 @@ from ephys_alignment_gui.core.alignment import EphysAlignment
 from ephys_alignment_gui.io.data_loader import LoadDataLocal
 from ephys_alignment_gui.visualization.plot_elements import ColorBar
 from ephys_alignment_gui.visualization.thread_worker import Worker
-from ephys_alignment_gui.visualization.windows.features_across_region import (
-    RegionFeatureWindow,
-)
-from ephys_alignment_gui.visualization.windows.subject_scaling import ScalingWindow
 
 logger = logging.getLogger(__name__)
 
@@ -2831,26 +2827,6 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         self.activateWindow()
 
         return clust_no
-
-    def display_subject_scaling(self) -> None:
-        if self.subj_win is not None:
-            self.subj_win.close()
-
-        self.subj_win = ScalingWindow(
-            self.loaddata.probe_id,
-            self.loaddata.subj,
-            self.loaddata.one,
-            self.loaddata.brain_atlas,
-        )
-
-    def display_region_features(self) -> None:
-        self.region_win = RegionFeatureWindow(
-            self.loaddata.one,
-            np.unique(np.array(self.ephysalign.region_id).ravel()),
-            self.loaddata.brain_atlas,
-            download=False,
-        )
-        self.region_win.show()
 
     def on_mouse_double_clicked(self, event) -> None:
         """

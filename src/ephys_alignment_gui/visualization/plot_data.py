@@ -82,9 +82,8 @@ class PlotData:
                 self.data["spikes"][key] = self.data["spikes"][key][shank_spikes_subset]
             self.filter_units("all")
             self.compute_timescales()
-
-        logger.debug(f"Spike idx: {self.spike_idx}")
-        logger.debug(f"Keep idx: {self.kp_idx}")
+            logger.debug(f"Spike idx: {self.spike_idx}")
+            logger.debug(f"Keep idx: {self.kp_idx}")
 
     def filter_units(self, subset: str) -> None:
         try:
