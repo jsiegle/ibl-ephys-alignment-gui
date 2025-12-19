@@ -2,6 +2,9 @@
 
 This module handles computation and formatting of spike data, LFP signals,
 and other electrophysiology metrics for display in the alignment GUI.
+
+Note: This module returns raw color data (RGB tuples) rather than Qt color objects.
+The visualization layer is responsible for converting these to QColor when needed.
 """
 
 import logging
@@ -13,7 +16,6 @@ from matplotlib import cm
 from numpy.typing import NDArray
 from one.alf.io import AlfBunch
 from pandas import DataFrame
-from PyQt5 import QtGui
 
 from ephys_alignment_gui.utils import bincount2D
 
@@ -143,6 +145,26 @@ class PlotData:
 
     # Plots that require spike and cluster data
     def get_depth_data_scatter(self):
+        """Compute scatter plot data for spike amplitude visualization.
+
+        Returns
+        -------
+        dict or None
+            Dictionary containing scatter plot data with keys:
+            - x: spike times (downsampled)
+            - y: spike depths (downsampled)
+            - levels: amplitude range in uV
+            - colours: array of RGB tuples (R, G, B) with values 0-255
+            - pen: pen style (None)
+            - size: point sizes
+            - symbol: marker symbol
+            - xrange: time range
+            - xaxis: x-axis label
+            - title: colorbar title
+            - cmap: colormap name
+            - cluster: whether data is cluster-averaged
+            Returns None if spike data doesn't exist.
+        """
         if not self.data["spikes"]["exists"]:
             data_scatter = None
             return data_scatter
@@ -164,6 +186,8 @@ class PlotData:
             spikes_size = np.empty(
                 self.data["spikes"]["amps"][self.spike_idx][self.kp_idx].size
             )
+            # Dark purple RGB for saturated spikes
+            saturated_color = (64, 0, 128)
             for iA in range(amp_bins.size):
                 if iA == (amp_bins.size - 1):
                     idx = np.where(
@@ -171,7 +195,7 @@ class PlotData:
                         > amp_bins[iA]
                     )[0]
                     # Make saturated spikes a very dark purple
-                    spikes_colours[idx] = QtGui.QColor("#400080")
+                    spikes_colours[idx] = saturated_color
                 else:
                     idx = np.where(
                         (
@@ -183,7 +207,7 @@ class PlotData:
                             <= amp_bins[iA + 1]
                         )
                     )[0]
-                    spikes_colours[idx] = QtGui.QColor(*colours[iA])
+                    spikes_colours[idx] = tuple(colours[iA])
 
                 spikes_size[idx] = iA / (A_BIN / 4)
 
