@@ -1,16 +1,16 @@
-"""Visualization components for the ephys alignment GUI.
+"""Data visualization utilities for electrophysiology analysis.
 
-This subpackage contains all PyQt5-dependent visualization code,
-including the main GUI window, plot widgets, and helper elements.
+This subpackage contains PyQt-independent data processing and
+visualization utilities. PyQt-dependent GUI code lives in the
+'desktop' subpackage.
+
+Modules:
+    plot_data: Data processing for scatter/image plots
+    create_overview_plots: Static matplotlib-based summary figures
 """
 
-from ephys_alignment_gui.visualization.launch_gui import MainWindow, main
 from ephys_alignment_gui.visualization.plot_data import PlotData
-from ephys_alignment_gui.visualization.plot_elements import ColorBar
 
 __all__ = [
-    "MainWindow",
-    "main",
     "PlotData",
-    "ColorBar",
 ]
