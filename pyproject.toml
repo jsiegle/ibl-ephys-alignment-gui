@@ -29,9 +29,15 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 dev = ['black', 'coverage', 'flake8', 'interrogate', 'isort']
+web = [
+  'panel>=1.3.0',
+  'holoviews>=1.18.0',
+  'bokeh>=3.3.0',
+]
 
 [project.scripts]
 launch = 'ephys_alignment_gui.desktop.launch_gui:main'
+launch-web = 'ephys_alignment_gui.web.app:main'
 
 [tool.setuptools.packages.find]
 where = ["src"]
