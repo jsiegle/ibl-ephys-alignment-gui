@@ -22,7 +22,7 @@ from aind_data_access_api.helpers.data_schema import get_quality_control_by_id
 from aind_registration_utils.annotations import expand_compacted_image
 from iblatlas import atlas
 from iblatlas.regions import BrainRegions
-from iblutil.util import Bunch
+from ephys_alignment_gui.utils import Bunch
 from numpy.typing import NDArray
 from one import alf
 

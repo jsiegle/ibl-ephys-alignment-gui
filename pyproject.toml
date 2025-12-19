@@ -19,7 +19,6 @@ dependencies = [
   "antspyx",
   "aws-requests-auth",
   "iblatlas",
-  "iblutil",
   "nibabel",
   "PyQt5",
   "pyqtgraph",

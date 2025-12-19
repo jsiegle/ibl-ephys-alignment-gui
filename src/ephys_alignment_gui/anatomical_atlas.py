@@ -4,7 +4,7 @@ import numpy as np
 import SimpleITK as sitk
 from iblatlas.atlas import BrainAtlas, BrainCoordinates
 from iblatlas.regions import BrainRegions
-from iblutil.numerical import ismember
+from ephys_alignment_gui.utils import ismember
 
 _logger = logging.getLogger(__name__)
 
