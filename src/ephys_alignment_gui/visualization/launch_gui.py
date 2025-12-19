@@ -19,18 +19,18 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt, QThread
 from PyQt5.QtWidgets import QApplication
 
-import ephys_alignment_gui.ephys_gui_setup as ephys_gui
-import ephys_alignment_gui.plot_data as pd
-from ephys_alignment_gui.create_overview_plots import make_overview_plot
-from ephys_alignment_gui.docdb import write_output_to_docdb
-from ephys_alignment_gui.ephys_alignment import EphysAlignment
-from ephys_alignment_gui.load_data_local import LoadDataLocal
-from ephys_alignment_gui.plot_elements import ColorBar
-from ephys_alignment_gui.thread_worker import Worker
-from ephys_alignment_gui.windows.features_across_region import (
+import ephys_alignment_gui.visualization.gui_setup as ephys_gui
+import ephys_alignment_gui.visualization.plot_data as pd
+from ephys_alignment_gui.visualization.create_overview_plots import make_overview_plot
+from ephys_alignment_gui.io.docdb import write_output_to_docdb
+from ephys_alignment_gui.core.alignment import EphysAlignment
+from ephys_alignment_gui.io.data_loader import LoadDataLocal
+from ephys_alignment_gui.visualization.plot_elements import ColorBar
+from ephys_alignment_gui.visualization.thread_worker import Worker
+from ephys_alignment_gui.visualization.windows.features_across_region import (
     RegionFeatureWindow,
 )
-from ephys_alignment_gui.windows.subject_scaling import ScalingWindow
+from ephys_alignment_gui.visualization.windows.subject_scaling import ScalingWindow
 
 logger = logging.getLogger(__name__)
 
@@ -2006,6 +2006,7 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
             self.feature_prev, self.track_prev = self.loaddata.get_alignment_idx(0)
             self.recreate_alignment_and_regions()
 
+        logger.debug("Plotting data for shank...")
         self.plotdata = pd.PlotData(self.probe_path, self.data, self.current_shank_idx)
         self.set_lims(np.min([0, self.plotdata.chn_min]), self.plotdata.chn_max)
 
@@ -2050,6 +2051,7 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
             )
 
         if self.histology_exists:
+            logger.debug("Getting slice images...")
             self.slice_data, self.fp_slice_data = self.loaddata.get_slice_images(
                 self.ephysalign.track_interpolation_ras
             )
@@ -3182,7 +3184,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--log-level",
-        default="INFO",
+        default="DEBUG",
         required=False,
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set logging level",

@@ -11,7 +11,7 @@ import iblatlas.atlas as atlas
 import numpy as np
 from numpy.typing import NDArray
 
-from ephys_alignment_gui.probe_geometry import trace_header
+from ephys_alignment_gui.core.probe_geometry import trace_header
 
 _logger = logging.getLogger(__name__)
 

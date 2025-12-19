@@ -10,8 +10,8 @@ from one.api import ONE
 from one.remote import aws
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from ephys_alignment_gui.ephys_alignment import EphysAlignment
-from ephys_alignment_gui.plot_elements import QRangeSlider, replace_axis
+from ephys_alignment_gui.core.alignment import EphysAlignment
+from ephys_alignment_gui.visualization.plot_elements import QRangeSlider, replace_axis
 
 pg.setConfigOption("background", "w")
 pg.setConfigOption("foreground", "k")

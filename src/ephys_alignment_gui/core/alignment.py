@@ -6,7 +6,7 @@ from iblatlas.atlas import BrainAtlas, Trajectory
 from numpy.typing import NDArray
 from scipy.interpolate import interp1d
 
-import ephys_alignment_gui.histology as histology
+import ephys_alignment_gui.core.histology as histology
 
 logger = logging.getLogger(__name__)
 

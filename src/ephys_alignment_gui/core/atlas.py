@@ -72,6 +72,7 @@ class BrainAtlasAnatomical(BrainAtlas):
                 )
 
         # Reorient to _BLESSED_DIRECTION if needed
+        _logger.debug("BrainAtlasAnatomical: Checking image orientation")
         orientation_code = (
             sitk.DICOMOrientImageFilter.GetOrientationFromDirectionCosines(
                 intensity_img.GetDirection()
@@ -141,18 +142,22 @@ class BrainAtlasAnatomical(BrainAtlas):
 
         # We can use BrainRegions from iblatlas because the labels are
         # lateralized IBL
+        _logger.debug("BrainAtlasAnatomical: Loading BrainRegions")
         regions = BrainRegions()
 
         # Get arrays from SimpleITK images. I think there's no mutation risk
+        _logger.debug("BrainAtlasAnatomical: Converting images to arrays")
         intensity_img_sra_arr = sitk.GetArrayFromImage(intensity_img_blessed)
         label_img_sra_arr = sitk.GetArrayFromImage(label_img_blessed)
 
         # Need to convert these lateralized labels to IBL codes (input to their
         # mappings)
+        _logger.debug("BrainAtlasAnatomical: Mapping labels to region IDs")
         _, im = ismember(label_img_sra_arr, regions.id)
         label = np.reshape(im.astype(np.int16), label_img_sra_arr.shape)
 
         # Initialize the superclass
+        _logger.debug("BrainAtlasAnatomical: Initializing BrainAtlas superclass")
         super().__init__(
             intensity_img_sra_arr,
             label,
@@ -165,13 +170,16 @@ class BrainAtlasAnatomical(BrainAtlas):
 
         # Need to account for the anatomical image origin not being at 0,0,0
         # SimpleITK is mm LPS, and IBL wants m RAS
+        _logger.debug("BrainAtlasAnatomical: Computing sitk_origin_ras_m")
         sitk_origin_ras_m = (
             np.array(intensity_img_blessed.GetOrigin()) * np.array([-1, -1, 1]) * 1e-3
         )
         nxyz = np.array(intensity_img_sra_arr.shape)[dims2xyz]
+        _logger.debug("BrainAtlasAnatomical: Creating BrainCoordinates objects")
         self.bc = BrainCoordinates(nxyz=nxyz, xyz0=sitk_origin_ras_m, dxyz=dxyz)
         # Store the SimpleITK intensity image, and the pipeline image for use
         # with CCF transforms
+        _logger.debug("BrainAtlasAnatomical: Storing SimpleITK images")
         self.intensity_sitk_image = intensity_img_blessed
         self.pipeline_sitk_image = pipeline_img_blessed
 

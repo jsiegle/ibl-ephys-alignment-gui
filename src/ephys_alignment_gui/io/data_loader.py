@@ -26,11 +26,11 @@ from ephys_alignment_gui.utils import Bunch
 from numpy.typing import NDArray
 from one import alf
 
-from ephys_alignment_gui.anatomical_atlas import (
+from ephys_alignment_gui.core.atlas import (
     _BLESSED_DIRECTION,
     BrainAtlasAnatomical,
 )
-from ephys_alignment_gui.docdb import _default_doc_db_api_client, query_docdb_id
+from ephys_alignment_gui.io.docdb import _default_doc_db_api_client, query_docdb_id
 
 ssl._create_default_https_context = ssl._create_unverified_context
 logger = logging.getLogger(__name__)
@@ -367,7 +367,9 @@ class LoadDataLocal:
             raise RuntimeError(
                 "Image space paths not set, cannot load atlas and histology"
             )
+        logger.debug("Loading intensity image")
         intensity_image = sitk.ReadImage(self.image_space_paths.atlas_image_path)
+        logger.debug("Loading label image")
         label_image = sitk.ReadImage(self.image_space_paths.atlas_labels_path)
         if label_image.GetPixelID() is not sitk.sitkInt32:
             # This is a hack that I need to fix in the processing pipeline
@@ -375,13 +377,16 @@ class LoadDataLocal:
                 self.data_root / "allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
             )["unique_labels"]
             label_image = expand_compacted_image(label_image, unq_annotations)
+        logger.debug("Loading pipeline image")
         pipeline_image = sitk.ReadImage(self.image_space_paths.pipeline_image_path)
+        logger.debug("Creating BrainAtlasAnatomical")
         self.brain_atlas = BrainAtlasAnatomical(
             intensity_img=intensity_image,
             label_img=label_image,
             pipeline_img=pipeline_image,
         )
 
+        logger.debug("Loading histology image")
         histology_image = sitk.ReadImage(self.image_space_paths.histology_image_path)
         dicom_orient_str = (
             sitk.DICOMOrientImageFilter.GetOrientationFromDirectionCosines(
@@ -392,10 +397,12 @@ class LoadDataLocal:
             reorient = False
         else:
             reorient = True
+            logger.debug("Reorienting histology image")
             histology_image = sitk.DICOMOrient(histology_image, _BLESSED_DIRECTION)
         self.histology_images["histology_registration"] = histology_image
 
         # Store metadata for lazy loading other channels
+        logger.debug("Setting up lazy loading for other channels")
         self._lazy_channel_paths = {}
         self._lazy_channel_reorient = reorient
         for other_channel in self.image_space_paths.other_channel_paths:

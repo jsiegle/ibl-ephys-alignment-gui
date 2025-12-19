@@ -31,7 +31,7 @@ dynamic = ["version"]
 dev = ['black', 'coverage', 'flake8', 'interrogate', 'isort']
 
 [project.scripts]
-launch = 'ephys_alignment_gui.launch_gui:main'
+launch = 'ephys_alignment_gui.visualization.launch_gui:main'
 
 [tool.setuptools.packages.find]
 where = ["src"]
