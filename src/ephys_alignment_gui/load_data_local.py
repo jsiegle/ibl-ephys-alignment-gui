@@ -172,7 +172,6 @@ class LoadDataLocal:
     input_path: Path | None = None
     data_root: Path | None = None
     histology_path: Path | None = None
-    we_are_in_code_ocean: bool = True
     chn_coords: NDArray | None = None
     chn_coords_all: NDArray | None = None
     sess_path: Path | None = None
@@ -317,16 +316,15 @@ class LoadDataLocal:
         self.n_shanks = np.sum(chn_x_diff > 100) + 1
 
     def set_input_paths(self, input_path: Path, we_are_in_code_ocean: bool) -> None:
-        if not we_are_in_code_ocean:
-            raise RuntimeError("Only Code Ocean path resolution is supported currently")
         if self.input_path == input_path:
             logger.debug("Input path already set, skipping reset")
             return
         self.we_are_in_code_ocean = we_are_in_code_ocean
         self.input_path = input_path
         self.chn_coords_all = None
-        data_root = input_path.parents[3]
-        self.data_root = data_root
+        if self.data_root is None:
+            logging.info("Data root not set, assuming standard structure")
+            self.data_root = input_path.parents[3]
         maybe_tx_chain = self._find_transform_files()
         if maybe_tx_chain is None:
             raise FileNotFoundError(
@@ -691,6 +689,8 @@ class LoadDataLocal:
         logger.info(
             f"Loading transforms from stitched smartspim asset for {subject_id}..."
         )
+        logger.info(f"Data root: {self.data_root}")
+        logger.info(f"Subject ID: {subject_id}")
         smartspim_template_affine_transform = tuple(
             self.data_root.glob(
                 f"SmartSPIM_{subject_id}*/image_atlas_alignment/*/ls_to_template_SyN_0GenericAffine.mat"
