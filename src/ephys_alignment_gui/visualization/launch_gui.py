@@ -2042,14 +2042,6 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         self.probe_rfmap, self.rfmap_boundaries = self.plotdata.get_rfmap_data()
         self.img_stim_data = self.plotdata.get_passive_events()
 
-        # TODO broken
-        if self.offline:
-            self.img_raw_data = {}
-        else:
-            self.img_raw_data = self.plotdata.get_raw_data_image(
-                self.loaddata.probe_id, one=self.loaddata.one
-            )
-
         if self.histology_exists:
             logger.debug("Getting slice images...")
             self.slice_data, self.fp_slice_data = self.loaddata.get_slice_images(
