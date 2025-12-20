@@ -126,6 +126,33 @@ class EphysPlots(param.Parameterized):
             logger.exception(f"Error getting plot data for {plot_type}: {e}")
             return None
 
+    def _get_line_data_for_type(self, plot_type: str) -> dict | None:
+        """Get line plot data for the specified type.
+
+        Parameters
+        ----------
+        plot_type : str
+            Line plot type identifier.
+
+        Returns
+        -------
+        dict or None
+            Line plot data dictionary or None.
+        """
+        if self._plot_data is None:
+            return None
+
+        try:
+            fr_data, amp_data = self._plot_data.get_fr_amp_data_line()
+            if plot_type == "firing_rate":
+                return fr_data
+            elif plot_type == "amplitude":
+                return amp_data
+            return None
+        except Exception as e:
+            logger.exception(f"Error getting line plot data: {e}")
+            return None
+
     def _create_image_plot(self, data: dict) -> hv.Image:
         """Create a HoloViews Image from plot data dict.
 
@@ -170,6 +197,42 @@ class EphysPlots(param.Parameterized):
                 width=600,
                 height=500,
                 tools=["hover", "box_zoom", "reset"],
+            )
+        )
+
+    def _create_line_plot(self, data: dict) -> hv.Curve:
+        """Create a HoloViews Curve (line plot) from plot data dict.
+
+        Parameters
+        ----------
+        data : dict
+            Plot data with keys: x, y, xrange, xaxis
+
+        Returns
+        -------
+        hv.Curve
+            HoloViews Curve element.
+        """
+        x = data["x"]
+        y = data["y"]
+
+        # Create horizontal line plot (y vs x, rotated 90 degrees)
+        # For probe-style plots, x is the value and y is the depth
+        curve = hv.Curve(
+            (x, y),
+            kdims=["value"],
+            vdims=["depth"],
+        )
+
+        return curve.opts(
+            opts.Curve(
+                line_width=2,
+                color="blue",
+                xlabel=data.get("xaxis", ""),
+                ylabel="Distance from probe tip (μm)",
+                width=200,
+                height=500,
+                tools=["hover"],
             )
         )
 

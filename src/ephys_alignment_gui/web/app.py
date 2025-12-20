@@ -21,7 +21,7 @@ import panel as pn
 import param
 
 from ephys_alignment_gui.web.components.data_loader import DataLoader
-from ephys_alignment_gui.web.components.ephys_plots import EphysPlots
+from ephys_alignment_gui.web.layouts.main_layout import MainLayout
 from ephys_alignment_gui.web.state import AppState
 
 # Configure logging
@@ -33,6 +33,62 @@ logger = logging.getLogger(__name__)
 
 # Configure Panel
 pn.extension("tabulator", sizing_mode="stretch_width")
+
+# Keyboard shortcut JavaScript
+KEYBOARD_SHORTCUTS_JS = """
+window.addEventListener('keydown', function(e) {
+    // Only handle if not in an input field
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+    }
+    
+    switch(e.key) {
+        case 'Enter':
+            // Trigger fit
+            document.dispatchEvent(new CustomEvent('alignment-fit'));
+            e.preventDefault();
+            break;
+        case 'o':
+        case 'O':
+            // Trigger offset
+            document.dispatchEvent(new CustomEvent('alignment-offset'));
+            e.preventDefault();
+            break;
+        case 'ArrowRight':
+            // Next
+            document.dispatchEvent(new CustomEvent('alignment-next'));
+            e.preventDefault();
+            break;
+        case 'ArrowLeft':
+            // Previous
+            document.dispatchEvent(new CustomEvent('alignment-prev'));
+            e.preventDefault();
+            break;
+        case 'r':
+            if (e.ctrlKey || e.metaKey) {
+                // Reset (Ctrl+R)
+                document.dispatchEvent(new CustomEvent('alignment-reset'));
+                e.preventDefault();
+            }
+            break;
+        case 's':
+            if (e.ctrlKey || e.metaKey) {
+                // Save (Ctrl+S)
+                document.dispatchEvent(new CustomEvent('alignment-save'));
+                e.preventDefault();
+            }
+            break;
+        case 'd':
+            if (e.shiftKey) {
+                // Delete line (Shift+D)
+                document.dispatchEvent(new CustomEvent('alignment-delete-line'));
+                e.preventDefault();
+            }
+            break;
+    }
+});
+console.log('Keyboard shortcuts enabled: Enter=Fit, O=Offset, Arrows=Nav, Ctrl+R=Reset, Ctrl+S=Save, Shift+D=Delete');
+"""
 
 
 class AlignmentApp(param.Parameterized):
@@ -58,7 +114,7 @@ class AlignmentApp(param.Parameterized):
 
         # Initialize components
         self.data_loader = DataLoader(self.state)
-        self.ephys_plots = EphysPlots(self.state)
+        self.main_layout = MainLayout(self.state)
 
         # Wire up inter-component communication
         self.data_loader.param.watch(self._on_data_loaded, "load_requested")
@@ -68,7 +124,11 @@ class AlignmentApp(param.Parameterized):
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event from DataLoader."""
         logger.info("Data load completed, refreshing plots")
-        self.ephys_plots.param.trigger("refresh")
+        # Trigger refresh on all components via the main layout
+        self.main_layout.ephys_plots.param.trigger("refresh")
+        self.main_layout.histology_panel.param.trigger("refresh")
+        self.main_layout.slice_viewer.param.trigger("refresh")
+        self.main_layout.probe_view.param.trigger("refresh")
 
     def _create_header(self) -> pn.Row:
         """Create the application header."""
@@ -90,19 +150,45 @@ class AlignmentApp(param.Parameterized):
         return pn.Column(
             self.data_loader.view(),
             pn.layout.Divider(),
-            self.ephys_plots.controls(),
+            pn.pane.Markdown("### Display Options"),
+            pn.widgets.Checkbox(
+                name="Show Labels",
+                value=self.state.show_labels,
+            ),
+            pn.widgets.Checkbox(
+                name="Show Lines",
+                value=self.state.show_lines,
+            ),
+            pn.widgets.Checkbox(
+                name="Show Channels",
+                value=self.state.show_channels,
+            ),
             sizing_mode="stretch_width",
-            width=300,
+            width=320,
         )
 
     def _create_main_content(self) -> pn.Column:
         """Create the main content area with plots."""
-        # Use pn.bind to create reactive plot view
-        plot_view = pn.bind(lambda _: self.ephys_plots.view(), self.ephys_plots.param.refresh)
-
+        # Use the main layout which coordinates all visualization components
+        # Areas are cached internally with their own reactive bindings
         return pn.Column(
-            plot_view,
+            self.main_layout.view_simple(),
             sizing_mode="stretch_both",
+        )
+
+    def _create_keyboard_handler(self) -> pn.pane.HTML:
+        """Create keyboard shortcut handler.
+
+        Returns
+        -------
+        pn.pane.HTML
+            Hidden HTML pane with keyboard handling script.
+        """
+        return pn.pane.HTML(
+            f"<script>{KEYBOARD_SHORTCUTS_JS}</script>",
+            height=0,
+            width=0,
+            sizing_mode="fixed",
         )
 
     def view(self) -> pn.template.FastListTemplate:
@@ -113,10 +199,13 @@ class AlignmentApp(param.Parameterized):
         pn.template.FastListTemplate
             The complete application layout.
         """
+        # Create keyboard handler
+        keyboard_handler = self._create_keyboard_handler()
+
         template = pn.template.FastListTemplate(
             title="Ephys Alignment GUI",
             sidebar=[self._create_sidebar()],
-            main=[self._create_main_content()],
+            main=[keyboard_handler, self._create_main_content()],
             accent_base_color="#6B5B95",
             header_background="#6B5B95",
             sidebar_width=320,
