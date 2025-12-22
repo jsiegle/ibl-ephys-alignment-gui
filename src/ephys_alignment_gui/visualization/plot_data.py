@@ -833,9 +833,10 @@ class PlotData:
             AUTOCORR_WIN_SIZE,
         )
 
-        return autocorr[0, 0, :], self.data["clusters"].metrics.cluster_id[
-            self.clust_id[clust_idx]
-        ]
+        return (
+            autocorr[0, 0, :],
+            self.data["clusters"].metrics.cluster_id[self.clust_id[clust_idx]],
+        )
 
     def get_template_wf(self, clust_idx):
         template_wf = self.data["clusters"]["waveforms"][self.clust_id[clust_idx], :, 0]

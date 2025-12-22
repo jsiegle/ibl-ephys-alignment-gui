@@ -801,13 +801,13 @@ class Setup:
         Key figures:
         ============
 
-        Ephys plots:  
+        Ephys plots:
         self.fig_img: 2D scatter/ image plot for ephys data
         self.fig_img_cb: colour bar for 2D scatter/ image plot
         self.fig_line: 1D line plot for ephys data
         self.fig_probe: 2D probe plot for ephys data
         self.fig_probe_cb: colour bar for 2D probe plot
-        
+
         Histology plots:
         self.fig_hist: histology plot (shows the brain regions the probe travels through)
         self.fig_scale: scale bar for histology plot
@@ -819,7 +819,7 @@ class Setup:
 
         Fit plot:
         self.fig_fit: plot showing histology-to-ephys fit line
-        
+
         """
         # Lists to store the position of probe top and tip
         self.probe_top_lines = []

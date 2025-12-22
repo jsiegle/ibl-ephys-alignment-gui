@@ -373,7 +373,8 @@ class LoadDataLocal:
         if label_image.GetPixelID() is not sitk.sitkInt32:
             # This is a hack that I need to fix in the processing pipeline
             unq_annotations = np.load(
-                self.data_root / "allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
+                self.data_root
+                / "allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
             )["unique_labels"]
             label_image = expand_compacted_image(label_image, unq_annotations)
         logger.debug("Loading pipeline image")
@@ -506,9 +507,7 @@ class LoadDataLocal:
 
         return input_path, chn_depths, sess_notes, data
 
-    def load_lfp_correlation_data(
-        self, probe_path: Path
-    ) -> dict[str, NDArray]:
+    def load_lfp_correlation_data(self, probe_path: Path) -> dict[str, NDArray]:
         """
         Load LFP correlation data from the band_corr folder.
 

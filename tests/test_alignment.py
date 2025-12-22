@@ -233,6 +233,7 @@ class TestGetScaleFactor(unittest.TestCase):
 
     def test_uniform_scaling(self):
         """All regions scaled by same factor."""
+
         # Create a minimal mock with region attribute
         # Note: region_orig is in METERS (the function multiplies by 1e6)
         class MockAlignment:
@@ -253,6 +254,7 @@ class TestGetScaleFactor(unittest.TestCase):
 
     def test_variable_scaling(self):
         """Different regions scaled by different factors."""
+
         # Note: region_orig is in METERS (the function multiplies by 1e6)
         class MockAlignment:
             region = np.array([[0, 1e-6], [1e-6, 2e-6]])  # meters

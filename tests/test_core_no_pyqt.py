@@ -52,12 +52,7 @@ class TestCorePyQtFree(unittest.TestCase):
 
     def test_core_has_no_pyqt_imports(self):
         """No file in core/ should import PyQt or pyqtgraph."""
-        core_dir = (
-            Path(__file__).parent.parent
-            / "src"
-            / "ephys_alignment_gui"
-            / "core"
-        )
+        core_dir = Path(__file__).parent.parent / "src" / "ephys_alignment_gui" / "core"
 
         violations = []
         for py_file in core_dir.glob("*.py"):
