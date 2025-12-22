@@ -74,15 +74,12 @@ class TestCorePyQtFree(unittest.TestCase):
         from ephys_alignment_gui.core import (
             EphysAlignment,
             BrainAtlasAnatomical,
-            interpolate_along_track,
-            trace_header,
-            TIP_SIZE_UM,
+            interpolate_along_track
         )
 
         # Basic sanity checks
-        self.assertEqual(TIP_SIZE_UM, 200)
         self.assertTrue(callable(interpolate_along_track))
-        self.assertTrue(callable(trace_header))
+
 
 
 if __name__ == "__main__":

@@ -98,3 +98,37 @@ The GUI expects input data organized in the following structure:
     ├── *Warp.nii.gz / *InverseWarp.nii.gz         # Forward/inverse warp fields
     └── template_in_ccf_*.nii.gz                   # Transformed template images
 ```
+
+
+## Contributing
+
+### Linters and testing
+
+There are several libraries used to run linters, check documentation, and run tests.
+
+- Please test your changes using the **coverage** library, which will run the tests and log a coverage report:
+
+```bash
+coverage run -m unittest discover && coverage report
+```
+
+- Use **interrogate** to check that modules, methods, etc. have been documented thoroughly:
+
+```bash
+interrogate .
+```
+
+- Use **flake8** to check that code is up to standards (no unused imports, etc.):
+```bash
+flake8 .
+```
+
+- Use **black** to automatically format the code into PEP standards:
+```bash
+black .
+```
+
+- Use **isort** to automatically sort import statements:
+```bash
+isort .
+```
