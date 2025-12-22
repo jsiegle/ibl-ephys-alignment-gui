@@ -3065,20 +3065,6 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         self.tot_idx_string.setText(f"Total Index = {self.total_idx}")
 
 
-def viewer(probe_id, one=None, histology=False, spike_collection=None, title=None):
-    """ """
-    qt.create_app()
-    av = MainWindow._get_or_create(
-        probe_id=probe_id,
-        one=one,
-        histology=histology,
-        spike_collection=spike_collection,
-        title=title,
-    )
-    av.show()
-    return av
-
-
 def setup_logging(log_level=logging.INFO, log_file=None) -> None:
     """
     Setup logging configuration for the entire application.
