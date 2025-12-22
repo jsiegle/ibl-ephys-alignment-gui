@@ -6,8 +6,6 @@ from iblatlas.atlas import BrainAtlas, Trajectory
 from numpy.typing import NDArray
 from scipy.interpolate import interp1d
 
-import ephys_alignment_gui.core.histology as histology
-
 logger = logging.getLogger(__name__)
 
 TIP_SIZE_UM = 200
@@ -15,6 +13,39 @@ TIP_SIZE_UM = 200
 
 def _cumulative_distance(xyz):
     return np.cumsum(np.r_[0, np.sqrt(np.sum(np.diff(xyz, axis=0) ** 2, axis=1))])
+
+
+def interpolate_along_track(
+    track_annos_and_ends_ras: NDArray, depths: NDArray
+) -> NDArray:
+    """
+    Get 3D coordinates of points along a track at specified distances from the first point.
+
+    Performs linear interpolation along the cumulative distance of the track
+    to compute xyz coordinates at arbitrary depth positions.
+
+    Parameters
+    ----------
+    track_annos_and_ends_ras : NDArray
+        Array of shape (n_points, 3) defining the track in RAS coordinates.
+        Usually the first point is the deepest (most ventral).
+    depths : NDArray
+        Array of distances from the first point of the track.
+        Convention: deepest point is 0, values increase going dorsally.
+
+    Returns
+    -------
+    NDArray
+        Array of shape (len(depths), 3) with interpolated xyz coordinates
+        in RAS space.
+    """
+    distance = _cumulative_distance(track_annos_and_ends_ras)
+    channel_locations_ras = np.zeros((depths.shape[0], 3))
+    for m in np.arange(3):
+        channel_locations_ras[:, m] = np.interp(
+            depths, distance, track_annos_and_ends_ras[:, m]
+        )
+    return channel_locations_ras
 
 
 def _get_surface_intersection_override(
@@ -259,7 +290,7 @@ class EphysAlignment:
             self.track_annos_and_ends_ras[:, 2],
             track_cumulative_distance
         )
-        self.track_interpolation_ras = histology.interpolate_along_track(
+        self.track_interpolation_ras = interpolate_along_track(
             self.track_annos_and_ends_ras, depths_at_z_samples
         )
         # Compute cumulative distance along trajectory for compatibility
@@ -778,7 +809,7 @@ class EphysAlignment:
             self.feature2track(depths, feature, track) - self.track_extent[0]
         )
 
-        channel_locations_ras = histology.interpolate_along_track(
+        channel_locations_ras = interpolate_along_track(
             self.track_annos_and_ends_ras, channel_depths_track
         )
         return channel_locations_ras
@@ -807,7 +838,7 @@ class EphysAlignment:
         )
 
         # Interpolate 3D position along the trajectory
-        tip_location_ras = histology.interpolate_along_track(
+        tip_location_ras = interpolate_along_track(
             self.track_annos_and_ends_ras, tip_depth_track
         )
 

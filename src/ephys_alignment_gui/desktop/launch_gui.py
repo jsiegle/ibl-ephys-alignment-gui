@@ -2003,7 +2003,11 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
             self.recreate_alignment_and_regions()
 
         logger.debug("Plotting data for shank...")
-        self.plotdata = pd.PlotData(self.probe_path, self.data, self.current_shank_idx)
+        # Load LFP correlation data (disk I/O in data_loader)
+        lfp_corr_data = self.loaddata.load_lfp_correlation_data(self.probe_path)
+        self.plotdata = pd.PlotData(
+            self.probe_path, self.data, self.current_shank_idx, lfp_corr_data
+        )
         self.set_lims(np.min([0, self.plotdata.chn_min]), self.plotdata.chn_max)
 
         self.scat_drift_data = self.plotdata.get_depth_data_scatter()

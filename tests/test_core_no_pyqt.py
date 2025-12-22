@@ -80,8 +80,6 @@ class TestCorePyQtFree(unittest.TestCase):
             EphysAlignment,
             BrainAtlasAnatomical,
             interpolate_along_track,
-            load_track_csv,
-            get_brain_regions,
             trace_header,
             TIP_SIZE_UM,
         )
@@ -89,7 +87,7 @@ class TestCorePyQtFree(unittest.TestCase):
         # Basic sanity checks
         self.assertEqual(TIP_SIZE_UM, 200)
         self.assertTrue(callable(interpolate_along_track))
-        self.assertTrue(callable(load_track_csv))
+        self.assertTrue(callable(trace_header))
 
 
 if __name__ == "__main__":
