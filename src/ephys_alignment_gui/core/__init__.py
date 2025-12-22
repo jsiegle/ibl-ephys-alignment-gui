@@ -7,12 +7,9 @@ PyQt5 or any visualization-specific dependencies.
 
 from ephys_alignment_gui.core.alignment import EphysAlignment, interpolate_along_track
 from ephys_alignment_gui.core.atlas import BrainAtlasAnatomical
-from ephys_alignment_gui.core.probe_geometry import TIP_SIZE_UM, trace_header
 
 __all__ = [
     "EphysAlignment",
     "BrainAtlasAnatomical",
-    "interpolate_along_track",
-    "trace_header",
-    "TIP_SIZE_UM",
+    "interpolate_along_track"
 ]
