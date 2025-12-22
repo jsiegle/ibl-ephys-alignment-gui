@@ -188,22 +188,14 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         return av
 
     def __init__(
-        self,
-        offline=True,
-        probe_id=None,
-        one=None,
-        histology=True,
-        spike_collection=None,
-        remote=False,
+        self
     ) -> None:
         super().__init__()
 
         self.init_variables()
-        self.offline: bool = offline
-        self.init_layout(self, offline=offline)
+        self.init_layout()
 
         self.configure: bool = True
-        self.offline: bool = True
         self.histology_exists: bool = True
         self.data_status: bool = False
         self.output_directory: Path | None = None
@@ -1801,7 +1793,7 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
 
     def on_folder_selected(self) -> bool:
         """
-        Triggered in offline mode when folder button is clicked
+        Triggered when folder button is clicked
         """
         we_are_in_code_ocean = Path("/results/").is_dir() and Path("/data/").is_dir()
 
@@ -1874,7 +1866,7 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
 
     def on_output_folder_selected(self) -> bool:
         """
-        Triggered in offline mode when folder button is clicked
+        Triggered when folder button is clicked
         """
         folder_path = Path(
             QtWidgets.QFileDialog.getExistingDirectory(None, "Select Output Directory")
@@ -2572,9 +2564,9 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         )
         self.update_string()
 
-    def run_complete_button_in_thread(self) -> None:
+    def run_save_button_in_thread(self) -> None:
         self.thread = QThread()
-        self.worker = Worker(self.complete_button_pressed_offline)
+        self.worker = Worker(self.save_button_pressed)
         self.worker.moveToThread(self.thread)
 
         self.thread.started.connect(self.worker.run)
@@ -2582,7 +2574,7 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         self.worker.finished.connect(self.worker.deleteLater)  # Clean up worker
         self.thread.finished.connect(self.thread.deleteLater)  # Clean up thread
 
-    def complete_button_pressed_offline(self) -> None:
+    def save_button_pressed(self) -> None:
         """
         Triggered when save button or Shift+S keys are pressed.
         Saves final channel locations to a JSON file
@@ -3134,25 +3126,8 @@ def setup_logging(log_level=logging.INFO, log_file=None) -> None:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Offline vs online mode")
-    parser.add_argument(
-        "-o", "--offline", default=True, required=False, help="Offline mode"
-    )
-    parser.add_argument(
-        "-r",
-        "--remote",
-        default=False,
-        required=False,
-        action="store_true",
-        help="Remote mode",
-    )
-    parser.add_argument(
-        "-i",
-        "--insertion",
-        default=None,
-        required=False,
-        help="Insertion mode",
-    )
+    parser = argparse.ArgumentParser()
+
     parser.add_argument(
         "--log-level",
         default="DEBUG",
@@ -3160,6 +3135,7 @@ def main() -> None:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set logging level",
     )
+
     parser.add_argument(
         "--log-file",
         default=None,
@@ -3177,10 +3153,8 @@ def main() -> None:
     logger.info(f"Arguments: {args}")
 
     app = QtWidgets.QApplication([])
-    mainapp = MainWindow(
-        offline=args.offline, probe_id=args.insertion, remote=args.remote
-    )
-    # mainapp = MainWindow(offline=True)
+    mainapp = MainWindow()
+
     mainapp.show()
 
     logger.info("Starting Qt event loop")
