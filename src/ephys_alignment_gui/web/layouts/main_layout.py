@@ -6,15 +6,16 @@ mirrors the desktop application structure.
 
 import logging
 
+import holoviews as hv
 import numpy as np
 import panel as pn
 import param
+from holoviews import opts
 
 from ephys_alignment_gui.core.alignment import EphysAlignment
 from ephys_alignment_gui.web.components.alignment_controls import AlignmentControls
 from ephys_alignment_gui.web.components.ephys_plots import EphysPlots
 from ephys_alignment_gui.web.components.histology_panel import HistologyPanel
-from ephys_alignment_gui.web.components.probe_view import ProbeView
 from ephys_alignment_gui.web.components.reference_lines import ReferenceLinesManager
 from ephys_alignment_gui.web.components.slice_viewer import SliceViewer
 from ephys_alignment_gui.web.state import AppState
@@ -34,9 +35,9 @@ class MainLayout(param.Parameterized):
     Layout structure (similar to desktop):
     ```
     +-------------------+------------+------------------+
-    |                   |            | Controls         |
+    |                   |            | Slice Viewer     |
     |   Ephys Plots     | Histology  +------------------+
-    |   (img + line +   |   Panel    | Slice Viewer     |
+    |   (img + line +   |   Panel    | Controls         |
     |    probe)         |            +------------------+
     |                   |            | Fit Plot         |
     +-------------------+------------+------------------+
@@ -58,7 +59,6 @@ class MainLayout(param.Parameterized):
         # Initialize components
         self.ephys_plots = EphysPlots(state)
         self.histology_panel = HistologyPanel(state)
-        self.probe_view = ProbeView(state)
         self.slice_viewer = SliceViewer(state)
         self.alignment_controls = AlignmentControls(state)
         self.reference_lines = ReferenceLinesManager(state)
@@ -337,50 +337,78 @@ class MainLayout(param.Parameterized):
         self.reference_lines.remove_last_line()
         self.param.trigger("refresh")
 
+    def _create_linked_depth_plots(self) -> pn.pane.HoloViews:
+        """Create all depth plots with linked Y-axes.
+
+        Combines ephys plots (image, line, probe) and histology into
+        a single HoloViews Layout with shared Y-axis.
+
+        Returns
+        -------
+        pn.pane.HoloViews
+            HoloViews pane with linked depth plots.
+        """
+        # Get individual plots
+        image_plot = self.ephys_plots._get_image_plot()
+        line_plot = self.ephys_plots._get_line_plot()
+        probe_plot = self.ephys_plots._get_probe_plot()
+        hist_plot = self.histology_panel.get_plot()
+
+        # Combine into a Layout with shared Y-axis
+        layout = (image_plot + line_plot + probe_plot + hist_plot).opts(
+            opts.Layout(shared_axes=True, merge_tools=True)
+        ).cols(4)
+        return pn.pane.HoloViews(layout, sizing_mode="stretch_both")
+
     def _create_ephys_area(self) -> pn.Column:
-        """Create the ephys data visualization area.
+        """Create the ephys and histology visualization area with linked axes.
 
         Returns
         -------
         pn.Column
-            Column containing ephys plots and controls.
+            Column containing linked depth plots and controls.
         """
+        # Create reactive binding for the linked plots
         plot_view = pn.bind(
-            lambda _: self.ephys_plots.view(),
+            lambda _, __: self._create_linked_depth_plots(),
             self.ephys_plots.param.refresh,
+            self.histology_panel.param.refresh,
+        )
+
+        # Selectors aligned with their respective plots (3 ephys + 1 histology)
+        controls_row = pn.Row(
+            self.ephys_plots.controls(),
+            self.histology_panel.controls(),
+            sizing_mode="stretch_width",
         )
 
         return pn.Column(
-            self.ephys_plots.controls(),
+            controls_row,
             plot_view,
             sizing_mode="stretch_both",
         )
 
-    def _create_histology_area(self) -> pn.Column:
-        """Create the histology visualization area.
-
-        Returns
-        -------
-        pn.Column
-            Column containing histology panel (scaled brain regions).
-        """
-        hist_view = pn.bind(
-            lambda _: self.histology_panel.view(),
-            self.histology_panel.param.refresh,
-        )
-
-        return pn.Column(
-            hist_view,
-            sizing_mode="stretch_both",
-        )
-
     def _create_control_area(self) -> pn.Column:
-        """Create the controls and auxiliary views area.
+        """Create the controls area.
 
         Returns
         -------
         pn.Column
-            Column containing controls, slice viewer, and reference lines.
+            Column containing alignment controls.
+        """
+        return pn.Column(
+            self.alignment_controls.view(),
+            sizing_mode="stretch_width",
+            min_height=350,
+        )
+    
+    def _create_slice_viewer_area(self) -> pn.Column:
+        """Create the slice viewer area.
+
+        Returns
+        -------
+        pn.Column
+            Column containing the slice viewer with its selector.
         """
         slice_view = pn.bind(
             lambda _: self.slice_viewer.view(),
@@ -388,10 +416,24 @@ class MainLayout(param.Parameterized):
         )
 
         return pn.Column(
-            self.alignment_controls.view(),
-            pn.layout.Divider(),
+            self.slice_viewer.controls(),
             slice_view,
-            sizing_mode="stretch_width",
+            sizing_mode="stretch_both",
+        )
+
+    def _create_fit_area(self) -> pn.Column:
+        """Create the fit plot area.
+
+        Returns
+        -------
+        pn.Column
+            Column containing fit plot (if applicable).
+        """
+        # Placeholder for fit plot - can be expanded as needed
+        return pn.Column(
+            pn.pane.Markdown("### Fit Plot"),
+            pn.pane.Markdown("*Fit plot functionality not yet implemented*"),
+            sizing_mode="stretch_both",
         )
 
     @param.depends("refresh")
@@ -409,39 +451,16 @@ class MainLayout(param.Parameterized):
             min_height=700,
         )
 
-        # Main ephys plots area (column 0, spans rows 0-9)
-        grid[0:10, 0:5] = self._create_ephys_area()
+        # Main ephys + histology area with linked Y-axes (columns 0-7, rows 0-10)
+        grid[0:10, 0:7] = self._create_ephys_area()
 
-        # Histology area (column 1, spans rows 0-9)
-        grid[0:10, 5:7] = self._create_histology_area()
+        # Slice viewer (columns 7-10, rows 0-4) - independent Y-axis
+        grid[0:4, 7:10] = self._create_slice_viewer_area()
 
-        # Control area (column 2)
-        grid[0:10, 7:10] = self._create_control_area()
+        # Control area (columns 7-10, rows 4-7)
+        grid[4:7, 7:10] = self._create_control_area()
+
+        # Fit area (columns 7-10, rows 7-10)
+        grid[7:10, 7:10] = self._create_fit_area()
 
         return grid
-
-    def view_simple(self) -> pn.Row:
-        """Create a simpler row-based layout.
-
-        This is an alternative layout that's easier to debug.
-        Areas are cached to preserve reactive bindings.
-
-        Returns
-        -------
-        pn.Row
-            Row layout with all components.
-        """
-        # Create areas only once to preserve pn.bind reactive components
-        if self._ephys_area is None:
-            self._ephys_area = self._create_ephys_area()
-        if self._histology_area is None:
-            self._histology_area = self._create_histology_area()
-        if self._control_area is None:
-            self._control_area = self._create_control_area()
-
-        return pn.Row(
-            self._ephys_area,
-            self._histology_area,
-            self._control_area,
-            sizing_mode="stretch_both",
-        )

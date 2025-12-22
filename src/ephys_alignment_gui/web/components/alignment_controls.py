@@ -40,57 +40,43 @@ class AlignmentControls(param.Parameterized):
         super().__init__(**params)
         self.state = state
 
-        # Create buttons
+        # Create buttons with consistent sizing
+        btn_width = 90
+
         self._fit_button = pn.widgets.Button(
             name="Fit (Enter)",
             button_type="primary",
-            width=100,
+            width=btn_width,
         )
         self._offset_button = pn.widgets.Button(
-            name="Offset (O)",
+            name="(O)ffset",
             button_type="default",
-            width=100,
+            width=btn_width,
         )
         self._next_button = pn.widgets.Button(
             name="Next →",
             button_type="default",
-            width=80,
+            width=btn_width,
         )
         self._prev_button = pn.widgets.Button(
             name="← Prev",
             button_type="default",
-            width=80,
+            width=btn_width,
         )
         self._reset_button = pn.widgets.Button(
             name="Reset",
             button_type="warning",
-            width=80,
+            width=btn_width,
         )
         self._save_button = pn.widgets.Button(
             name="Save",
             button_type="success",
-            width=80,
+            width=btn_width,
         )
         self._delete_line_button = pn.widgets.Button(
-            name="Delete Line",
+            name="Del Line",
             button_type="danger",
-            width=100,
-        )
-
-        # Linear fit checkbox
-        self._lin_fit_checkbox = pn.widgets.Checkbox(
-            name="Linear fit",
-            value=True,
-        )
-
-        # Probe boundary slider
-        self._probe_range_slider = pn.widgets.RangeSlider(
-            name="Probe Bounds (μm)",
-            start=-500,
-            end=4500,
-            value=(0, 3840),
-            step=10,
-            orientation="horizontal",
+            width=btn_width,
         )
 
         # Connect button callbacks
@@ -101,12 +87,9 @@ class AlignmentControls(param.Parameterized):
         self._reset_button.on_click(self._on_reset_clicked)
         self._save_button.on_click(self._on_save_clicked)
         self._delete_line_button.on_click(self._on_delete_line_clicked)
-        self._lin_fit_checkbox.param.watch(self._on_lin_fit_changed, "value")
-        self._probe_range_slider.param.watch(self._on_probe_range_changed, "value")
 
         # Watch state changes
         state.param.watch(self._on_data_loaded, "data_loaded")
-        state.param.watch(self._on_probe_bounds_changed, ["probe_tip", "probe_top"])
 
     def _on_data_loaded(self, event) -> None:
         """Enable/disable buttons based on data load state."""
@@ -158,23 +141,7 @@ class AlignmentControls(param.Parameterized):
         logger.info("Delete line button clicked")
         self.param.trigger("delete_line_clicked")
 
-    def _on_lin_fit_changed(self, event) -> None:
-        """Handle linear fit checkbox change."""
-        self.state.lin_fit = event.new
-        logger.info(f"Linear fit: {event.new}")
-
-    def _on_probe_range_changed(self, event) -> None:
-        """Handle probe range slider change."""
-        tip, top = event.new
-        self.state.probe_tip = tip
-        self.state.probe_top = top
-        logger.debug(f"Probe bounds: tip={tip}, top={top}")
-
-    def _on_probe_bounds_changed(self, *events) -> None:
-        """Sync slider with state probe bounds."""
-        self._probe_range_slider.value = (self.state.probe_tip, self.state.probe_top)
-
-    def _create_move_indicator(self) -> pn.pane.Markdown:
+    def _create_move_indicator(self):
         """Create a reactive move index indicator."""
         return pn.bind(
             lambda idx, total: f"**Move:** {idx}/{total}",
@@ -193,17 +160,25 @@ class AlignmentControls(param.Parameterized):
         move_indicator = pn.pane.Markdown(self._create_move_indicator())
 
         return pn.Column(
-            pn.pane.Markdown("## Alignment Controls"),
-            pn.Row(self._fit_button, self._offset_button),
-            pn.Row(self._prev_button, self._next_button),
-            move_indicator,
-            self._lin_fit_checkbox,
-            pn.layout.Divider(),
-            pn.pane.Markdown("### Probe Boundaries"),
-            self._probe_range_slider,
-            pn.layout.Divider(),
-            pn.Row(self._delete_line_button),
-            pn.layout.Divider(),
-            pn.Row(self._reset_button, self._save_button),
+            pn.pane.Markdown("### Alignment Controls", margin=(0, 0, 10, 0)),
+            pn.Row(
+                self._fit_button,
+                self._offset_button,
+                self._delete_line_button,
+                margin=(0, 0, 5, 0),
+            ),
+            pn.Row(
+                self._prev_button,
+                self._next_button,
+                move_indicator,
+                margin=(0, 0, 5, 0),
+            ),
+            pn.layout.Divider(margin=(10, 0, 10, 0)),
+            pn.Row(
+                self._reset_button,
+                self._save_button,
+            ),
             sizing_mode="stretch_width",
+            max_width=300,
+            margin=(5, 10, 5, 10),
         )

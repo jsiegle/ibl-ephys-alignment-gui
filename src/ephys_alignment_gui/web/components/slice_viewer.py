@@ -42,7 +42,6 @@ class SliceViewer(param.Parameterized):
         # Watch state changes
         state.param.watch(self._on_data_loaded, "data_loaded")
         state.param.watch(self._on_plot_type_changed, "slice_plot_type")
-        state.param.watch(self._on_channels_toggled, "show_channels")
 
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
@@ -114,11 +113,11 @@ class SliceViewer(param.Parameterized):
         )
 
         if img.ndim == 3 and img.shape[2] >= 3:
-            # RGB image
-            return hv.RGB(img, bounds=bounds)
+            # RGB image - use unique dimension names to avoid axis linking
+            return hv.RGB(img, bounds=bounds, kdims=["ml", "dv"])
         else:
-            # Grayscale image
-            return hv.Image(img, bounds=bounds)
+            # Grayscale image - use unique dimension names to avoid axis linking
+            return hv.Image(img, bounds=bounds, kdims=["ml", "dv"])
 
     def _create_channel_overlay(self) -> hv.Points | None:
         """Create channel marker overlay.
@@ -128,22 +127,47 @@ class SliceViewer(param.Parameterized):
         hv.Points or None
             Points element for channel markers or None.
         """
-        if not self.state.show_channels:
-            return None
 
         # Channel locations would come from the alignment data
         # For now, return empty overlay
         # In full implementation, this would use ephys_alignment.channel_locations
         return None
 
-    def controls(self) -> pn.widgets.Select:
-        """Return plot type selector widget.
+    def _create_placeholder_slice(self):
+        """Create a placeholder brain slice image."""
+        # Create a simple ellipse pattern to suggest brain shape
+        size = 100
+        y, x = np.ogrid[-size:size, -size:size]
+        # Ellipse mask (wider than tall, like coronal slice)
+        mask = (x * x) / (size * 0.9) ** 2 + (y * y) / (size * 0.7) ** 2 <= 1
+        img = np.zeros((2 * size, 2 * size))
+        img[mask] = 0.3  # Light gray brain region
 
-        Returns
-        -------
-        pn.widgets.Select
-            Select widget for choosing slice plot type.
-        """
+        # Add some internal structure suggestion
+        inner_mask = (x * x) / (size * 0.3) ** 2 + (y * y) / (size * 0.4) ** 2 <= 1
+        img[inner_mask] = 0.5
+
+        return hv.Image(
+            img,
+            bounds=(-5000, -8000, 5000, 0),
+            kdims=["ml", "dv"],  # Unique dimension names to avoid axis linking
+        ).opts(
+            opts.Image(
+                cmap="gray",
+                clim=(0, 1),
+                width=250,
+                height=250,
+                xaxis=None,
+                yaxis=None,
+                toolbar="above",
+                tools=["pan", "wheel_zoom", "reset"],
+                active_tools=["wheel_zoom"],
+                alpha=0.5,
+            )
+        )
+
+    def controls(self) -> pn.widgets.Select:
+        """Return slice type selector widget."""
         # Get available slice types from data
         options = {"CCF Template": "ccf", "Annotations": "label"}
 
@@ -154,11 +178,14 @@ class SliceViewer(param.Parameterized):
                 if key not in ["ccf", "label", "scale", "offset"]:
                     options[key] = key
 
-        return pn.widgets.Select(
-            name="Slice Plot",
+        selector = pn.widgets.Select(
+            name="Brain Slice",
             options=options,
             value=self.state.slice_plot_type,
+            width=120,
         )
+        selector.link(self.state, value="slice_plot_type")
+        return selector
 
     @param.depends("refresh")
     def view(self) -> pn.Column:
@@ -173,9 +200,10 @@ class SliceViewer(param.Parameterized):
         img = self._get_slice_image()
 
         if img is None or slice_data is None:
+            # Show placeholder
+            plot = self._create_placeholder_slice()
             return pn.Column(
-                pn.pane.Markdown("### Brain Slice"),
-                pn.pane.Markdown("*No slice data loaded*"),
+                pn.pane.HoloViews(plot, sizing_mode="stretch_both"),
                 sizing_mode="stretch_both",
             )
 
@@ -186,10 +214,10 @@ class SliceViewer(param.Parameterized):
             plot_opts = opts.RGB if img.ndim == 3 else opts.Image
             plot = slice_img.opts(
                 plot_opts(
-                    width=300,
-                    height=300,
-                    xlabel="ML (μm)",
-                    ylabel="DV (μm)",
+                    width=250,
+                    height=250,
+                    xaxis=None,
+                    yaxis=None,
                     toolbar="above",
                     tools=["pan", "wheel_zoom", "reset"],
                     active_tools=["wheel_zoom"],
@@ -202,14 +230,12 @@ class SliceViewer(param.Parameterized):
                 plot = plot * channels
 
             return pn.Column(
-                pn.pane.Markdown("### Brain Slice"),
                 pn.pane.HoloViews(plot, sizing_mode="stretch_both"),
                 sizing_mode="stretch_both",
             )
         except Exception as e:
             logger.exception(f"Error creating slice view: {e}")
             return pn.Column(
-                pn.pane.Markdown("### Brain Slice"),
                 pn.pane.Markdown(f"*Error: {e}*"),
                 sizing_mode="stretch_both",
             )

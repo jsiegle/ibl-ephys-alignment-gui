@@ -40,13 +40,24 @@ class HistologyPanel(param.Parameterized):
     # Trigger manual refresh
     refresh = param.Event(doc="Trigger plot refresh")
 
+    # Plot type selection
+    plot_type = param.Selector(
+        default="aligned",
+        objects=["aligned", "reference"],
+        doc="Histology view type",
+    )
+
     def __init__(self, state: AppState, **params):
         super().__init__(**params)
         self.state = state
 
         # Watch state changes
         state.param.watch(self._on_data_loaded, "data_loaded")
-        state.param.watch(self._on_labels_toggled, "show_labels")
+        self.param.watch(self._on_plot_type_changed, "plot_type")
+
+    def _on_plot_type_changed(self, event) -> None:
+        """Handle plot type change."""
+        self.param.trigger("refresh")
 
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
@@ -113,7 +124,7 @@ class HistologyPanel(param.Parameterized):
             elements.append(rect)
 
             # Add label if enabled and available
-            if self.state.show_labels and i < len(labels) and labels[i]:
+            if i < len(labels) and labels[i]:
                 y_center = (y_min + y_max) / 2
                 label = hv.Text(
                     x_offset + width / 2,
@@ -148,6 +159,119 @@ class HistologyPanel(param.Parameterized):
         )
         return hv.Overlay([tip_line, top_line])
 
+    def _get_y_range(self) -> tuple:
+        """Get the shared Y-axis range for depth plots."""
+        return self.state.depth_y_range
+
+    def _create_placeholder_bars(self) -> hv.Overlay:
+        """Create placeholder region bars with gray gradient."""
+        y_range = self._get_y_range()
+        elements = []
+        # Create 10 placeholder regions
+        total_height = y_range[1] - y_range[0]
+        region_height = total_height / 10
+        for i in range(10):
+            y_min = y_range[0] + i * region_height
+            y_max = y_range[0] + (i + 1) * region_height
+            # Alternating gray shades
+            gray = 180 + (i % 2) * 40
+            hex_color = f"#{gray:02x}{gray:02x}{gray:02x}"
+
+            rect = hv.Rectangles(
+                [(0, y_min, 1, y_max)],
+                kdims=["x0", "y0", "x1", "y1"],
+            ).opts(
+                color=hex_color,
+                line_width=0,
+                alpha=0.5,
+            )
+            elements.append(rect)
+
+        return hv.Overlay(elements)
+
+    def get_plot(self) -> hv.Image:
+        """Return the histology plot as an Image for axis linking.
+
+        Uses an Image element with x, y kdims to match other depth plots
+        for proper axis linking.
+
+        Returns
+        -------
+        hv.Image
+            The histology plot as an image element.
+        """
+        hist_data = self.state.hist_data
+        y_range = self._get_y_range()
+        
+        # Create image array from region data
+        n_pixels = 500  # Vertical resolution
+        img = np.zeros((n_pixels, 1, 3), dtype=np.uint8)  # RGB image, 1 pixel wide
+        
+        if hist_data is not None and hist_data.get("region"):
+            regions = hist_data.get("region", [])
+            colours = hist_data.get("colour", [])
+            
+            for region, colour in zip(regions, colours):
+                if len(region) < 2:
+                    continue
+                y_min, y_max = region[0], region[1]
+                
+                # Convert y positions to pixel indices
+                idx_min = int((y_min - y_range[0]) / (y_range[1] - y_range[0]) * n_pixels)
+                idx_max = int((y_max - y_range[0]) / (y_range[1] - y_range[0]) * n_pixels)
+                idx_min = max(0, min(n_pixels - 1, idx_min))
+                idx_max = max(0, min(n_pixels, idx_max))
+                
+                if isinstance(colour, (list, tuple)) and len(colour) >= 3:
+                    img[idx_min:idx_max, 0, 0] = int(colour[0])
+                    img[idx_min:idx_max, 0, 1] = int(colour[1])
+                    img[idx_min:idx_max, 0, 2] = int(colour[2])
+                else:
+                    img[idx_min:idx_max, 0, :] = 128  # Gray default
+        else:
+            # Placeholder: alternating gray bars
+            bar_height = n_pixels // 10
+            for i in range(10):
+                gray = 180 + (i % 2) * 40
+                img[i * bar_height:(i + 1) * bar_height, 0, :] = gray
+        
+        # Create RGB image with x, y kdims for axis linking
+        plot = hv.RGB(
+            img,
+            bounds=(0, y_range[0], 1, y_range[1]),
+            kdims=["x", "y"],
+        )
+        
+        return plot.opts(
+            opts.RGB(
+                width=100,
+                height=450,
+                xlabel="",
+                ylabel="",
+                toolbar="above",
+                tools=["pan", "wheel_zoom", "reset"],
+                active_tools=["wheel_zoom"],
+                xaxis=None,  # Hide x-axis for histology
+                yaxis=None,  # Hide y-axis (shared with ephys plots)
+                margin=0,
+            )
+        )
+
+    def controls(self) -> pn.Column:
+        """Return histology type selector in fixed-width container.
+        
+        Width matches the histology plot width (100px).
+        """
+        selector = pn.widgets.Select(
+            name="Histology",
+            options={"Aligned": "aligned", "Reference": "reference"},
+            value=self.plot_type,
+            width=80,
+        )
+        selector.link(self, value="plot_type")
+        # Wrap in Column with fixed width matching plot width
+        return pn.Column(selector, width=100, align="start")
+
     @param.depends("refresh")
     def view(self) -> pn.Column:
         """Return the Panel layout for this component.
@@ -157,39 +281,9 @@ class HistologyPanel(param.Parameterized):
         pn.Column
             Panel column containing the histology visualization.
         """
-        hist_data = self.state.hist_data
-
-        if hist_data is None or not hist_data.get("region"):
-            return pn.Column(
-                pn.pane.Markdown("### Histology"),
-                pn.pane.Markdown("*No histology data loaded*"),
-                sizing_mode="stretch_both",
-            )
-
-        # Create main histology view (aligned)
-        main_bars = self._create_region_bars(hist_data, x_offset=0, width=1)
-        probe_bounds = self._create_probe_bounds()
-
-        # Combine elements
-        plot = (main_bars * probe_bounds).opts(
-            opts.Overlay(
-                width=150,
-                height=500,
-                xlabel="",
-                ylabel="Distance from probe tip (μm)",
-                xlim=(-0.1, 1.1),
-                ylim=(
-                    self.state.probe_tip - 100,
-                    self.state.probe_top + 100,
-                ),
-                toolbar="above",
-                tools=["pan", "wheel_zoom", "reset"],
-                active_tools=["wheel_zoom"],
-            )
-        )
+        plot = self.get_plot()
 
         return pn.Column(
-            pn.pane.Markdown("### Histology"),
             pn.pane.HoloViews(plot, sizing_mode="stretch_both"),
             sizing_mode="stretch_both",
         )

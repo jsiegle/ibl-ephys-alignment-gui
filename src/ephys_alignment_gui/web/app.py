@@ -20,7 +20,7 @@ import logging
 import panel as pn
 import param
 
-from ephys_alignment_gui.web.components.data_loader import DataLoader
+from ephys_alignment_gui.web.components.data_selection_panel import DataSelectionPanel
 from ephys_alignment_gui.web.layouts.main_layout import MainLayout
 from ephys_alignment_gui.web.state import AppState
 
@@ -113,56 +113,28 @@ class AlignmentApp(param.Parameterized):
         self.state = AppState()
 
         # Initialize components
-        self.data_loader = DataLoader(self.state)
+        self.selection_panel = DataSelectionPanel(self.state)
         self.main_layout = MainLayout(self.state)
 
         # Wire up inter-component communication
-        self.data_loader.param.watch(self._on_data_loaded, "load_requested")
+        self.selection_panel.param.watch(self._on_data_loaded, "load_requested")
 
         logger.info("AlignmentApp initialized")
 
     def _on_data_loaded(self, event) -> None:
-        """Handle data loaded event from DataLoader."""
+        """Handle data loaded event from DataSelectionPanel."""
         logger.info("Data load completed, refreshing plots")
         # Trigger refresh on all components via the main layout
         self.main_layout.ephys_plots.param.trigger("refresh")
         self.main_layout.histology_panel.param.trigger("refresh")
         self.main_layout.slice_viewer.param.trigger("refresh")
-        self.main_layout.probe_view.param.trigger("refresh")
-
-    def _create_header(self) -> pn.Row:
-        """Create the application header."""
-        title = pn.pane.Markdown(
-            "# Ephys Alignment GUI",
-            sizing_mode="stretch_width",
-        )
-        status = pn.bind(
-            lambda msg, loading: f"**Status:** {msg}" + (" ⏳" if loading else " ✓"),
-            self.state.param.status_message,
-            self.state.param.loading,
-        )
-        status_pane = pn.pane.Markdown(status, sizing_mode="fixed", width=300)
-
-        return pn.Row(title, status_pane, sizing_mode="stretch_width")
+        self.main_layout.alignment_controls.param.trigger("refresh")
+        self.main_layout.reference_lines.param.trigger("refresh")
 
     def _create_sidebar(self) -> pn.Column:
         """Create the sidebar with controls."""
         return pn.Column(
-            self.data_loader.view(),
-            pn.layout.Divider(),
-            pn.pane.Markdown("### Display Options"),
-            pn.widgets.Checkbox(
-                name="Show Labels",
-                value=self.state.show_labels,
-            ),
-            pn.widgets.Checkbox(
-                name="Show Lines",
-                value=self.state.show_lines,
-            ),
-            pn.widgets.Checkbox(
-                name="Show Channels",
-                value=self.state.show_channels,
-            ),
+            self.selection_panel.view(),
             sizing_mode="stretch_width",
             width=320,
         )
@@ -172,7 +144,7 @@ class AlignmentApp(param.Parameterized):
         # Use the main layout which coordinates all visualization components
         # Areas are cached internally with their own reactive bindings
         return pn.Column(
-            self.main_layout.view_simple(),
+            self.main_layout.view(),
             sizing_mode="stretch_both",
         )
 
@@ -199,13 +171,13 @@ class AlignmentApp(param.Parameterized):
         pn.template.FastListTemplate
             The complete application layout.
         """
-        # Create keyboard handler
+        # Create keyboard handler (injected into sidebar to avoid blank space)
         keyboard_handler = self._create_keyboard_handler()
 
         template = pn.template.FastListTemplate(
             title="Ephys Alignment GUI",
-            sidebar=[self._create_sidebar()],
-            main=[keyboard_handler, self._create_main_content()],
+            sidebar=[keyboard_handler, self._create_sidebar()],
+            main=[self._create_main_content()],
             accent_base_color="#6B5B95",
             header_background="#6B5B95",
             sidebar_width=320,

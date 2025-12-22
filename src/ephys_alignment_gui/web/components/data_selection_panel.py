@@ -16,7 +16,7 @@ from ephys_alignment_gui.web.state import AppState
 logger = logging.getLogger(__name__)
 
 
-class DataLoader(param.Parameterized):
+class DataSelectionPanel(param.Parameterized):
     """Component for selecting and loading ephys data.
 
     Provides a UI for:
@@ -95,10 +95,8 @@ class DataLoader(param.Parameterized):
             if n_shanks > 1:
                 options = {f"Shank {i}": i for i in range(n_shanks)}
                 self._shank_selector.options = options
-                self._shank_selector.visible = True
             else:
                 self._shank_selector.options = {"Shank 0": 0}
-                self._shank_selector.visible = False
 
             self.state.n_shanks = n_shanks
             logger.info(f"Detected {n_shanks} shank(s)")
@@ -208,7 +206,6 @@ class DataLoader(param.Parameterized):
             Panel column containing the data loader UI.
         """
         return pn.Column(
-            pn.pane.Markdown("## Load Data"),
             self._input_path_input,
             self._shank_selector,
             self._output_path_input,

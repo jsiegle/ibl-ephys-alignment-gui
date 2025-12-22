@@ -59,8 +59,6 @@ class AppState(param.Parameterized):
         Currently selected probe plot type.
     slice_plot_type : str
         Currently selected slice plot type.
-    unit_filter : str
-        Current unit filter selection.
     """
 
     # Data loading state
@@ -81,6 +79,9 @@ class AppState(param.Parameterized):
     probe_top = param.Number(default=3840, doc="Probe top position (um)")
     reference_lines = param.List(default=[], doc="Reference line positions")
     lin_fit = param.Boolean(default=True, doc="Use linear fit scaling")
+
+    # Shared Y-axis range for depth plots (ephys, histology)
+    depth_y_range = param.Tuple(default=(-100, 3940), doc="Shared Y-axis range for depth plots")
 
     # Plot selection
     img_plot_type = param.Selector(
@@ -113,16 +114,7 @@ class AppState(param.Parameterized):
         objects=["ccf", "label"],
         doc="Slice plot type",
     )
-    unit_filter = param.Selector(
-        default="all",
-        objects=["all", "KS good", "KS mua", "IBL good", "aind_qc"],
-        doc="Unit filter",
-    )
 
-    # Display options
-    show_labels = param.Boolean(default=True, doc="Show region labels")
-    show_lines = param.Boolean(default=True, doc="Show reference lines")
-    show_channels = param.Boolean(default=True, doc="Show channel markers")
 
     def __init__(self, **params):
         super().__init__(**params)
