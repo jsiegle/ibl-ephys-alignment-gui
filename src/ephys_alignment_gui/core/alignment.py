@@ -6,8 +6,6 @@ from iblatlas.atlas import BrainAtlas, Trajectory
 from numpy.typing import NDArray
 from scipy.interpolate import interp1d
 
-import ephys_alignment_gui.core.histology as histology
-
 logger = logging.getLogger(__name__)
 
 TIP_SIZE_UM = 200
@@ -15,6 +13,39 @@ TIP_SIZE_UM = 200
 
 def _cumulative_distance(xyz):
     return np.cumsum(np.r_[0, np.sqrt(np.sum(np.diff(xyz, axis=0) ** 2, axis=1))])
+
+
+def interpolate_along_track(
+    track_annos_and_ends_ras: NDArray, depths: NDArray
+) -> NDArray:
+    """
+    Get 3D coordinates of points along a track at specified distances from the first point.
+
+    Performs linear interpolation along the cumulative distance of the track
+    to compute xyz coordinates at arbitrary depth positions.
+
+    Parameters
+    ----------
+    track_annos_and_ends_ras : NDArray
+        Array of shape (n_points, 3) defining the track in RAS coordinates.
+        Usually the first point is the deepest (most ventral).
+    depths : NDArray
+        Array of distances from the first point of the track.
+        Convention: deepest point is 0, values increase going dorsally.
+
+    Returns
+    -------
+    NDArray
+        Array of shape (len(depths), 3) with interpolated xyz coordinates
+        in RAS space.
+    """
+    distance = _cumulative_distance(track_annos_and_ends_ras)
+    channel_locations_ras = np.zeros((depths.shape[0], 3))
+    for m in np.arange(3):
+        channel_locations_ras[:, m] = np.interp(
+            depths, distance, track_annos_and_ends_ras[:, m]
+        )
+    return channel_locations_ras
 
 
 def _get_surface_intersection_override(
@@ -103,6 +134,102 @@ def get_brain_entry_override(
 
 
 class EphysAlignment:
+    """
+    Aligns electrophysiology data with histology track annotations.
+
+    This class provides methods for mapping between two coordinate spaces:
+    - **Feature space**: Depths along the probe as recorded in ephys data (µm)
+    - **Track space**: Distances along the histology trajectory (m)
+
+    Users create reference lines linking features in ephys data to anatomical
+    landmarks on the histology track. The class then interpolates between these
+    reference points to compute aligned channel locations in 3D brain coordinates.
+
+    Parameters
+    ----------
+    track_annotations_ras : NDArray[np.floating], shape (n_points, 3)
+        3D coordinates (in meters) of points along the histology track in
+        RAS (Right-Anterior-Superior) orientation. These are typically picked
+        manually from registered histology images.
+    chn_depths : array-like, optional
+        Channel depths along the probe in micrometers (µm). Used to determine
+        the probe span for setting initial alignment boundaries. If None,
+        default margins are used.
+    track_prev : array-like, optional
+        Previous track-space reference coordinates from a saved alignment.
+        If provided along with `feature_prev`, restores the previous alignment
+        state instead of initializing from defaults.
+    feature_prev : array-like, optional
+        Previous feature-space reference coordinates from a saved alignment.
+        Must be provided together with `track_prev`.
+    brain_atlas : iblatlas.atlas.BrainAtlas, optional
+        Brain atlas instance for region lookups and coordinate transforms.
+        Defaults to AllenAtlas at 25 µm resolution if not provided.
+    speedy : bool, default=False
+        If True, uses faster but less accurate method for computing brain
+        surface intersections. Useful during development/testing.
+    track_margin_m : float, default=0.006
+        Margin (in meters) to extend beyond the probe for alignment flexibility.
+        The initial alignment window spans from `-track_margin_m` (below tip)
+        to at least `track_margin_m` above the first electrode.
+
+    Attributes
+    ----------
+    brain_atlas : BrainAtlas
+        The brain atlas used for region lookups.
+    track_annos_and_ends_ras : NDArray, shape (n+2, 3)
+        Extended trajectory including entry/exit points beyond the original
+        track annotations.
+    track_extent : NDArray, shape (2,)
+        Cumulative distance bounds [tip, top] of the trajectory relative to
+        the first electrode position.
+    chn_depths : array-like
+        Channel depths in micrometers.
+    track_init : NDArray, shape (2,)
+        Initial track-space reference coordinates [bottom, top].
+    feature_init : NDArray, shape (2,)
+        Initial feature-space reference coordinates [bottom, top].
+    track_interpolation_ras : NDArray, shape (n_voxels, 3)
+        Voxel-aligned 3D coordinates sampled along the trajectory.
+    ephys_depths_along_track : NDArray, shape (n_voxels,)
+        Depth values corresponding to each point in `track_interpolation_ras`.
+    region : NDArray, shape (n_regions, 2)
+        Depth boundaries [start, end] for each brain region along the track.
+    region_label : NDArray, shape (n_regions, 2), dtype=object
+        Tuples of (center_depth, acronym) for labeling each region.
+    region_colour : NDArray, shape (n_regions, 3), dtype=int
+        RGB colors for each brain region.
+    region_id : NDArray, shape (n_regions, 1), dtype=int
+        Allen Atlas structure IDs for each brain region.
+
+    Examples
+    --------
+    Basic usage with track coordinates:
+
+    >>> track_xyz = np.array([[0.001, 0.002, -0.004],
+    ...                       [0.001, 0.002, -0.003],
+    ...                       [0.001, 0.002, -0.002]])  # RAS, meters
+    >>> chn_depths = np.arange(0, 3840, 10)  # µm
+    >>> alignment = EphysAlignment(track_xyz, chn_depths=chn_depths)
+
+    Get initial reference coordinates:
+
+    >>> feature, track, xyz = alignment.get_track_and_feature()
+
+    After user adds reference lines, compute aligned channel locations:
+
+    >>> feature_refs = np.array([-0.006, 0.001, 0.002, 0.006])  # with 2 user lines
+    >>> track_refs = np.array([-0.006, 0.0012, 0.0022, 0.006])
+    >>> channel_xyz = alignment.get_channel_locations(feature_refs, track_refs)
+
+    See Also
+    --------
+    feature2track : Convert feature-space to track-space coordinates.
+    track2feature : Convert track-space to feature-space coordinates.
+    get_channel_locations : Compute 3D channel positions from alignment.
+    scale_histology_regions : Recompute region boundaries after alignment.
+    """
+
     def __init__(
         self,
         track_annotations_ras: NDArray[np.floating],
@@ -159,11 +286,9 @@ class EphysAlignment:
         # Evaluate trajectory at voxel-aligned DV coordinates
         track_cumulative_distance = _cumulative_distance(self.track_annos_and_ends_ras)
         depths_at_z_samples = np.interp(
-            z_samples,
-            self.track_annos_and_ends_ras[:, 2],
-            track_cumulative_distance
+            z_samples, self.track_annos_and_ends_ras[:, 2], track_cumulative_distance
         )
-        self.track_interpolation_ras = histology.interpolate_along_track(
+        self.track_interpolation_ras = interpolate_along_track(
             self.track_annos_and_ends_ras, depths_at_z_samples
         )
         # Compute cumulative distance along trajectory for compatibility
@@ -682,7 +807,7 @@ class EphysAlignment:
             self.feature2track(depths, feature, track) - self.track_extent[0]
         )
 
-        channel_locations_ras = histology.interpolate_along_track(
+        channel_locations_ras = interpolate_along_track(
             self.track_annos_and_ends_ras, channel_depths_track
         )
         return channel_locations_ras
@@ -711,7 +836,7 @@ class EphysAlignment:
         )
 
         # Interpolate 3D position along the trajectory
-        tip_location_ras = histology.interpolate_along_track(
+        tip_location_ras = interpolate_along_track(
             self.track_annos_and_ends_ras, tip_depth_track
         )
 

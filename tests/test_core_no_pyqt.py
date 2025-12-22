@@ -52,12 +52,7 @@ class TestCorePyQtFree(unittest.TestCase):
 
     def test_core_has_no_pyqt_imports(self):
         """No file in core/ should import PyQt or pyqtgraph."""
-        core_dir = (
-            Path(__file__).parent.parent
-            / "src"
-            / "ephys_alignment_gui"
-            / "core"
-        )
+        core_dir = Path(__file__).parent.parent / "src" / "ephys_alignment_gui" / "core"
 
         violations = []
         for py_file in core_dir.glob("*.py"):
@@ -79,17 +74,12 @@ class TestCorePyQtFree(unittest.TestCase):
         from ephys_alignment_gui.core import (
             EphysAlignment,
             BrainAtlasAnatomical,
-            interpolate_along_track,
-            load_track_csv,
-            get_brain_regions,
-            trace_header,
-            TIP_SIZE_UM,
+            interpolate_along_track
         )
 
         # Basic sanity checks
-        self.assertEqual(TIP_SIZE_UM, 200)
         self.assertTrue(callable(interpolate_along_track))
-        self.assertTrue(callable(load_track_csv))
+
 
 
 if __name__ == "__main__":

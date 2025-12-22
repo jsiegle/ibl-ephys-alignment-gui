@@ -12,13 +12,13 @@ pg.setConfigOption("foreground", "k")
 
 
 class Setup:
-    def init_layout(self, main_window, offline=False) -> None:
+    def init_layout(self) -> None:
         self.resize(1600, 800)
         self.setWindowTitle("IBL Ephys Alignment GUI")
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
         )
-        self.offline = offline
+
         main_widget = QtWidgets.QWidget()
         self.setCentralWidget(main_widget)
 
@@ -339,12 +339,9 @@ class Setup:
         reset_option.triggered.connect(self.reset_button_pressed)
 
         # Shortcut to save final state to JSON file
-        complete_option = QtWidgets.QAction("Save", self)
-        complete_option.setShortcut("Ctrl+S")
-        if not self.offline:
-            complete_option.triggered.connect(self.display_qc_options)
-        else:
-            complete_option.triggered.connect(self.complete_button_pressed_offline)
+        save_option = QtWidgets.QAction("Save", self)
+        save_option.setShortcut("Ctrl+S")
+        save_option.triggered.connect(self.save_button_pressed)
 
         # Add menu bar with all possible keyboard interactions
         fit_options = menu_bar.addMenu("Fit Options")
@@ -356,7 +353,7 @@ class Setup:
         fit_options.addAction(next_option)
         fit_options.addAction(prev_option)
         fit_options.addAction(reset_option)
-        fit_options.addAction(complete_option)
+        fit_options.addAction(save_option)
 
         # DISPLAY OPTIONS MENU BAR
         # Define all possible keyboard shortcut for visualisation features
@@ -514,16 +511,6 @@ class Setup:
             fp_slice_label.triggered.connect(
                 lambda: self.plot_slice(self.fp_slice_data, "label")
             )
-        if not self.offline:
-            slice_hist_cb = QtWidgets.QAction(
-                "Histology cerebellar example",
-                self,
-                checkable=True,
-                checked=False,
-            )
-            slice_hist_cb.triggered.connect(
-                lambda: self.plot_slice(self.slice_data, "hist_cb")
-            )
 
         # Add menu bar for slice plot
         slice_options = menu_bar.addMenu("Slice Plots")
@@ -537,10 +524,6 @@ class Setup:
         if self.fp_slice_data is not None:
             slice_options.addAction(fp_slice_label)
             self.slice_options_group.addAction(fp_slice_label)
-
-        if not self.offline:
-            slice_options.addAction(slice_hist_cb)
-            self.slice_options_group.addAction(slice_hist_cb)
 
         # Initialise with the CCF as the default slice plot.
         self.slice_init = slice_ccf
@@ -583,43 +566,20 @@ class Setup:
         self.reset_button = QtWidgets.QPushButton("Reset")
         self.reset_button.clicked.connect(self.reset_button_pressed)
         # Button to upload final state to Alyx/ to local file
-        self.complete_button = QtWidgets.QPushButton("Save")
-        if not self.offline:
-            self.complete_button.clicked.connect(self.display_qc_options)
-        else:
-            self.complete_button.clicked.connect(self.complete_button_pressed_offline)
+        self.save_button = QtWidgets.QPushButton("Save")
+        self.save_button.clicked.connect(self.save_button_pressed)
 
-        if not self.offline:
-            # If offline mode is False, read in Subject and Session options from Alyx
-            # Drop down list to choose subject
-            self.subj_list = QtGui.QStandardItemModel()
-            self.subj_combobox = QtWidgets.QComboBox()
-            # Add line edit and completer to be able to search for subject
-            self.subj_combobox.setLineEdit(QtWidgets.QLineEdit())
-            subj_completer = QtWidgets.QCompleter()
-            subj_completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
-            self.subj_combobox.setCompleter(subj_completer)
-            self.subj_combobox.setModel(self.subj_list)
-            self.subj_combobox.completer().setModel(self.subj_list)
-            self.subj_combobox.activated.connect(self.on_subject_selected)
+        # Provide dialog to select local folder that holds data
+        self.input_folder_line = QtWidgets.QLineEdit()
+        self.input_folder_button = QtWidgets.QToolButton()
+        self.input_folder_button.setText("Input Directory")
+        self.input_folder_button.clicked.connect(self.on_folder_selected)
+        self.input_folder_line.editingFinished.connect(self.on_input_folder_edited)
 
-            # Drop down list to choose session
-            self.sess_list = QtGui.QStandardItemModel()
-            self.sess_combobox = QtWidgets.QComboBox()
-            self.sess_combobox.setModel(self.sess_list)
-            self.sess_combobox.activated.connect(self.on_session_selected)
-        else:
-            # If offline mode is True, provide dialog to select local folder that holds data
-            self.input_folder_line = QtWidgets.QLineEdit()
-            self.input_folder_button = QtWidgets.QToolButton()
-            self.input_folder_button.setText("Input Directory")
-            self.input_folder_button.clicked.connect(self.on_folder_selected)
-            self.input_folder_line.editingFinished.connect(self.on_input_folder_edited)
-
-            self.reload_folder_line = QtWidgets.QLineEdit()
-            self.reload_folder_button = QtWidgets.QToolButton()
-            self.reload_folder_button.setText("Load Alignments")
-            self.reload_folder_button.clicked.connect(self.load_existing_alignments)
+        self.reload_folder_line = QtWidgets.QLineEdit()
+        self.reload_folder_button = QtWidgets.QToolButton()
+        self.reload_folder_button.setText("Load Alignments")
+        self.reload_folder_button.clicked.connect(self.load_existing_alignments)
 
         # Drop down list to select shank
         self.shank_list = QtGui.QStandardItemModel()
@@ -651,28 +611,21 @@ class Setup:
 
         # Arrange interaction features into three different layout groups
         # Group 1 -- loading data
-        if not self.offline:
-            self.interaction_layout1 = QtWidgets.QHBoxLayout()
-            self.interaction_layout1.addWidget(self.subj_combobox, stretch=1)
-            self.interaction_layout1.addWidget(self.sess_combobox, stretch=2)
-            self.interaction_layout1.addWidget(self.align_combobox, stretch=2)
-            self.interaction_layout1.addWidget(self.data_button, stretch=1)
-        else:
-            interact_1_h_1 = QtWidgets.QHBoxLayout()
-            interact_1_h_1.addWidget(self.input_folder_button, stretch=0)
-            interact_1_h_1.addWidget(self.input_folder_line, stretch=2)
-            interact_1_h_1.addWidget(self.shank_combobox, stretch=1)
-            interact_1_h_1.addWidget(self.load_data_button, stretch=0)
+        interact_1_h_1 = QtWidgets.QHBoxLayout()
+        interact_1_h_1.addWidget(self.input_folder_button, stretch=0)
+        interact_1_h_1.addWidget(self.input_folder_line, stretch=2)
+        interact_1_h_1.addWidget(self.shank_combobox, stretch=1)
+        interact_1_h_1.addWidget(self.load_data_button, stretch=0)
 
-            interact_1_h_2 = QtWidgets.QHBoxLayout()
-            interact_1_h_2.addWidget(self.align_combobox, stretch=1)
-            interact_1_h_2.addWidget(self.use_docdb_checkbox, stretch=0)
-            interact_1_h_2.addWidget(self.reload_folder_button, stretch=0)
-            interact_1_h_2.addWidget(self.reload_folder_line, stretch=2)
+        interact_1_h_2 = QtWidgets.QHBoxLayout()
+        interact_1_h_2.addWidget(self.align_combobox, stretch=1)
+        interact_1_h_2.addWidget(self.use_docdb_checkbox, stretch=0)
+        interact_1_h_2.addWidget(self.reload_folder_button, stretch=0)
+        interact_1_h_2.addWidget(self.reload_folder_line, stretch=2)
 
-            self.interaction_layout1 = QtWidgets.QVBoxLayout()
-            self.interaction_layout1.addLayout(interact_1_h_1)
-            self.interaction_layout1.addLayout(interact_1_h_2)
+        self.interaction_layout1 = QtWidgets.QVBoxLayout()
+        self.interaction_layout1.addLayout(interact_1_h_1)
+        self.interaction_layout1.addLayout(interact_1_h_2)
 
         # Group 2 -- fitting and navigation
         interact_2_h_1 = QtWidgets.QHBoxLayout()
@@ -693,53 +646,10 @@ class Setup:
         interact_3_h_1.addWidget(self.output_folder_line, stretch=1)
         interact_3_h_2 = QtWidgets.QHBoxLayout()
         interact_3_h_2.addWidget(self.reset_button, stretch=0)
-        interact_3_h_2.addWidget(self.complete_button, stretch=0)
+        interact_3_h_2.addWidget(self.save_button, stretch=0)
         self.interaction_layout3 = QtWidgets.QVBoxLayout()
         self.interaction_layout3.addLayout(interact_3_h_1)
         self.interaction_layout3.addLayout(interact_3_h_2)
-
-        # Pop up dialog for qc results to datajoint, only for online mode
-        if not self.offline:
-            align_qc_label = QtWidgets.QLabel("Confidence of alignment")
-            self.align_qc = QtWidgets.QComboBox()
-            self.align_qc.addItems(["High", "Medium", "Low"])
-            ephys_qc_label = QtWidgets.QLabel("QC for ephys recording")
-            self.ephys_qc = QtWidgets.QComboBox()
-            self.ephys_qc.addItems(["Pass", "Warning", "Critical"])
-
-            self.desc_buttons = QtWidgets.QButtonGroup()
-            self.desc_group = QtWidgets.QGroupBox("Describe problem with recording")
-            self.desc_layout = QtWidgets.QVBoxLayout()
-            self.desc_layout.setSpacing(5)
-            self.desc_buttons.setExclusive(False)
-            options = CriticalInsertionNote.descriptions_gui
-            for i, val in enumerate(options):
-                button = QtWidgets.QCheckBox(val)
-                button.setCheckState(QtCore.Qt.Unchecked)
-
-                self.desc_buttons.addButton(button, id=i)
-                self.desc_layout.addWidget(button)
-
-            self.desc_group.setLayout(self.desc_layout)
-
-            self.qc_dialog = QtWidgets.QDialog(self)
-            self.qc_dialog.setWindowTitle("QC assessment")
-            self.qc_dialog.resize(300, 150)
-            self.qc_dialog.accepted.connect(self.qc_button_clicked)
-            buttonBox = QtWidgets.QDialogButtonBox(
-                QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-            )
-            buttonBox.accepted.connect(self.qc_dialog.accept)
-            buttonBox.rejected.connect(self.qc_dialog.reject)
-            #
-            dialog_layout = QtWidgets.QVBoxLayout()
-            dialog_layout.addWidget(align_qc_label)
-            dialog_layout.addWidget(self.align_qc)
-            dialog_layout.addWidget(ephys_qc_label)
-            dialog_layout.addWidget(self.ephys_qc)
-            dialog_layout.addWidget(self.desc_group)
-            dialog_layout.addWidget(buttonBox)
-            self.qc_dialog.setLayout(dialog_layout)
 
     def init_region_lookup(self, allen) -> None:
         """
@@ -797,6 +707,29 @@ class Setup:
     def init_figures(self) -> None:
         """
         Create all figures that will be added to the GUI
+
+        Key figures:
+        ============
+
+        Ephys plots:
+        self.fig_img: 2D scatter/ image plot for ephys data
+        self.fig_img_cb: colour bar for 2D scatter/ image plot
+        self.fig_line: 1D line plot for ephys data
+        self.fig_probe: 2D probe plot for ephys data
+        self.fig_probe_cb: colour bar for 2D probe plot
+
+        Histology plots:
+        self.fig_hist: histology plot (shows the brain regions the probe travels through)
+        self.fig_scale: scale bar for histology plot
+        self.fig_hist_ref: original reference histology plot (before user adjustments)
+
+        Brain slice plots:
+        self.fig_slice: coronal slice plot
+        self.fig_slice_cb: colour bar for coronal slice plot
+
+        Fit plot:
+        self.fig_fit: plot showing histology-to-ephys fit line
+
         """
         # Lists to store the position of probe top and tip
         self.probe_top_lines = []

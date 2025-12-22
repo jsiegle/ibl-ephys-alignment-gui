@@ -22,7 +22,6 @@ from aind_data_access_api.helpers.data_schema import get_quality_control_by_id
 from aind_registration_utils.annotations import expand_compacted_image
 from iblatlas import atlas
 from iblatlas.regions import BrainRegions
-from ephys_alignment_gui.utils import Bunch
 from numpy.typing import NDArray
 from one import alf
 
@@ -374,7 +373,8 @@ class LoadDataLocal:
         if label_image.GetPixelID() is not sitk.sitkInt32:
             # This is a hack that I need to fix in the processing pipeline
             unq_annotations = np.load(
-                self.data_root / "allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
+                self.data_root
+                / "allen_mouse_ccf_annotations_lateralized_compact/ccf_2017_annotation_25_lateralized_unique_vals.npz"
             )["unique_labels"]
             label_image = expand_compacted_image(label_image, unq_annotations)
         logger.debug("Loading pipeline image")
@@ -506,6 +506,76 @@ class LoadDataLocal:
             sess_notes = "No notes for this session"
 
         return input_path, chn_depths, sess_notes, data
+
+    def load_lfp_correlation_data(self, probe_path: Path) -> dict[str, NDArray]:
+        """
+        Load LFP correlation data from the band_corr folder.
+
+        Parameters
+        ----------
+        probe_path : Path
+            Path to the probe directory containing ephys data.
+
+        Returns
+        -------
+        dict[str, NDArray]
+            Dictionary mapping band names to correlation arrays.
+            Empty dict if no data found.
+        """
+        lfp_corr_folder = self._find_lfp_correlation_folder(probe_path)
+        if lfp_corr_folder is None:
+            return {}
+
+        lfp_corr_files = list(lfp_corr_folder.glob("*.npy"))
+        if not lfp_corr_files:
+            logger.warning(f"No LFP correlation files found in {lfp_corr_folder}")
+            return {}
+
+        all_data = {}
+        for file in lfp_corr_files:
+            band_name = file.stem.replace("_mean_corr", "")
+            all_data[band_name] = np.load(file)
+            logger.debug(f"Loaded LFP correlation for band: {band_name}")
+
+        logger.info(f"Loaded LFP correlation data for {len(all_data)} bands")
+        return all_data
+
+    def _find_lfp_correlation_folder(self, probe_path: Path) -> Path | None:
+        """
+        Locate the LFP correlation folder for a given probe.
+
+        Searches for band_corr folder in various locations based on
+        Code Ocean data asset structure.
+
+        Parameters
+        ----------
+        probe_path : Path
+            Path to the probe directory.
+
+        Returns
+        -------
+        Path or None
+            Path to band_corr folder if found, None otherwise.
+        """
+        # Locate the CO /data folder (or counterpart outside of CO)
+        co_data_folder = probe_path.parents[3]
+        probe_name = probe_path.parts[-1]
+
+        # Get the session prefix (subject + date)
+        subject_date = probe_path.parts[-2].rsplit("_", 1)[0]
+
+        # Look for folders matching subject_date in the CO data folder
+        this_session_same_folder = tuple(co_data_folder.glob(f"*/*/{subject_date}*"))
+        this_session_separate_asset = tuple(co_data_folder.glob(f"*/{subject_date}*"))
+        this_session_folders = this_session_same_folder + this_session_separate_asset
+
+        # Search for band_corr folder under the probe name
+        for session_folder in this_session_folders:
+            lfp_corr_folder = session_folder.joinpath(probe_name, "band_corr")
+            if lfp_corr_folder.exists():
+                return lfp_corr_folder
+
+        return None
 
     def load_allen_csv(self):
         allen_path = Path(Path(atlas.__file__).parent, "allen_structure_tree.csv")
@@ -855,13 +925,21 @@ class LoadDataLocal:
         return channel_dict, self.alignments, ccf_channel_dict, multi_shank
 
     @staticmethod
-    def create_channel_dict(brain_regions: Bunch) -> dict[str, dict[str, Any]]:
+    def create_channel_dict(brain_regions: dict) -> dict[str, dict[str, Any]]:
         """
-        Create channel dictionary in form to write to json file
-        :param brain_regions: information about location of electrode channels in brain atlas
-        :type brain_regions: Bunch
-        :return channel_dict:
-        :type channel_dict: dictionary of dictionaries
+        Create channel dictionary in form to write to json file.
+
+        Parameters
+        ----------
+        brain_regions : dict
+            Dict-like object with brain region info for each channel.
+            Expected keys: 'id', 'xyz', 'axial', 'lateral', 'acronym'.
+            Typically returned by iblatlas.regions.BrainRegions.get().
+
+        Returns
+        -------
+        dict[str, dict[str, Any]]
+            Channel dictionary keyed by 'channel_0', 'channel_1', etc.
         """
         channel_dict: dict[str, dict[str, Any]] = {}
 

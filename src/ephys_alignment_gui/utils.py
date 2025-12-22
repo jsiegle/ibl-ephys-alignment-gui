@@ -7,62 +7,6 @@ the ephys alignment GUI.
 
 import numpy as np
 from numpy.typing import NDArray
-from pathlib import Path
-import copy
-
-class Bunch(dict):
-    """A subclass of dictionary with an additional dot syntax."""
-
-    def __init__(self, *args, **kwargs):
-        super(Bunch, self).__init__(*args, **kwargs)
-        self.__dict__ = self
-
-    def copy(self, deep=False):
-        """Return a new Bunch instance which is a copy of the current Bunch instance.
-
-        Parameters
-        ----------
-        deep : bool
-            If True perform a deep copy (see notes). By default a shallow copy is returned.
-
-        Returns
-        -------
-        Bunch
-            A new copy of the Bunch.
-
-        Notes
-        -----
-        - A shallow copy constructs a new Bunch object and then (to the extent possible) inserts
-        references into it to the objects found in the original.
-        - A deep copy constructs a new Bunch and then, recursively, inserts copies into it of the
-         objects found in the original.
-        """
-        return copy.deepcopy(self) if deep else Bunch(super(Bunch, self).copy())
-
-    def save(self, npz_file, compress=False):
-        """
-        Saves a npz file containing the arrays of the bunch.
-
-        :param npz_file: output file
-        :param compress: bool (False) use compression
-        :return: None
-        """
-        if compress:
-            np.savez_compressed(npz_file, **self)
-        else:
-            np.savez(npz_file, **self)
-
-    @staticmethod
-    def load(npz_file):
-        """
-        Loads a npz file containing the arrays of the bunch.
-
-        :param npz_file: output file
-        :return: Bunch
-        """
-        if not Path(npz_file).exists():
-            raise FileNotFoundError(f'{npz_file}')
-        return Bunch(np.load(npz_file))
 
 
 def _fcn_extrap(x: NDArray, f, bounds: list | NDArray) -> NDArray:
