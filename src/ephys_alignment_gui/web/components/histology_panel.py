@@ -178,7 +178,7 @@ class HistologyPanel(param.Parameterized):
             hex_color = f"#{gray:02x}{gray:02x}{gray:02x}"
 
             rect = hv.Rectangles(
-                [(0, y_min, 1, y_max)],
+                [(0, y_min, 100, y_max)],
                 kdims=["x0", "y0", "x1", "y1"],
             ).opts(
                 color=hex_color,
@@ -235,29 +235,31 @@ class HistologyPanel(param.Parameterized):
                 gray = 180 + (i % 2) * 40
                 img[i * bar_height:(i + 1) * bar_height, 0, :] = gray
         
-        # Create RGB image with x, y kdims for axis linking
+        # Create RGB image with unique x dim so only y-axis is linked
         plot = hv.RGB(
             img,
             bounds=(0, y_range[0], 1, y_range[1]),
-            kdims=["x", "y"],
+            kdims=["x_hist", "y"],
         )
         
         return plot.opts(
             opts.RGB(
                 width=100,
-                height=450,
-                xlabel="",
+                frame_height=450,
+                xlabel="Histology",
                 ylabel="",
-                toolbar="above",
-                tools=["pan", "wheel_zoom", "reset"],
-                active_tools=["wheel_zoom"],
+                xlim=(0, 1),
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 xaxis=None,  # Hide x-axis for histology
                 yaxis=None,  # Hide y-axis (shared with ephys plots)
                 margin=0,
             )
         )
 
-    def controls(self) -> pn.Column:
+    def controls(self) -> pn.widgets.Select:
         """Return histology type selector in fixed-width container.
         
         Width matches the histology plot width (100px).
@@ -270,7 +272,7 @@ class HistologyPanel(param.Parameterized):
         )
         selector.link(self, value="plot_type")
         # Wrap in Column with fixed width matching plot width
-        return pn.Column(selector, width=100, align="start")
+        return selector
 
     @param.depends("refresh")
     def view(self) -> pn.Column:

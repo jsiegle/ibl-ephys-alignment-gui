@@ -74,7 +74,7 @@ class AlignmentControls(param.Parameterized):
             width=btn_width,
         )
         self._delete_line_button = pn.widgets.Button(
-            name="Del Line",
+            name="Delete",
             button_type="danger",
             width=btn_width,
         )
@@ -171,6 +171,7 @@ class AlignmentControls(param.Parameterized):
                 self._prev_button,
                 self._next_button,
                 move_indicator,
+                align="start",
                 margin=(0, 0, 5, 0),
             ),
             pn.layout.Divider(margin=(10, 0, 10, 0)),

@@ -159,9 +159,7 @@ class SliceViewer(param.Parameterized):
                 height=250,
                 xaxis=None,
                 yaxis=None,
-                toolbar="above",
-                tools=["pan", "wheel_zoom", "reset"],
-                active_tools=["wheel_zoom"],
+                toolbar=None,
                 alpha=0.5,
             )
         )
@@ -218,9 +216,7 @@ class SliceViewer(param.Parameterized):
                     height=250,
                     xaxis=None,
                     yaxis=None,
-                    toolbar="above",
-                    tools=["pan", "wheel_zoom", "reset"],
-                    active_tools=["wheel_zoom"],
+                    toolbar=None,
                 )
             )
 

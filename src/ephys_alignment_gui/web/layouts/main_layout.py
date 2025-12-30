@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 # Maximum number of alignment moves to track in history
 MAX_ALIGNMENT_HISTORY = 10
 
+# Don't show toolbar in Holoviews plots
+opts.defaults(toolbar=None)
 
 class MainLayout(param.Parameterized):
     """Main layout manager for the alignment GUI.
@@ -354,11 +356,26 @@ class MainLayout(param.Parameterized):
         probe_plot = self.ephys_plots._get_probe_plot()
         hist_plot = self.histology_panel.get_plot()
 
-        # Combine into a Layout with shared Y-axis
-        layout = (image_plot + line_plot + probe_plot + hist_plot).opts(
-            opts.Layout(shared_axes=True, merge_tools=True)
-        ).cols(4)
-        return pn.pane.HoloViews(layout, sizing_mode="stretch_both")
+        # Get controls
+        image_selector = self.ephys_plots.controls(selector='image')
+        line_selector = self.ephys_plots.controls(selector='line')
+        probe_selector = self.ephys_plots.controls(selector='probe')
+        hist_selector = self.histology_panel.controls()
+
+        # Arrange plots with their selectors
+        image_column = pn.Column(image_selector, image_plot, sizing_mode="stretch_both")
+        line_column = pn.Column(line_selector, line_plot, sizing_mode="stretch_both")
+        probe_column = pn.Column(probe_selector, probe_plot, sizing_mode="stretch_both")
+        hist_column = pn.Column(hist_selector, hist_plot, sizing_mode="stretch_both")
+
+        # Create a row of plots
+        layout = pn.Row(
+            image_column, line_column, probe_column, hist_column,
+            sizing_mode="fixed",
+            margin=0,
+            styles={"gap": "0px"}  # works on newer Panel versions
+        )
+        return layout
 
     def _create_ephys_area(self) -> pn.Column:
         """Create the ephys and histology visualization area with linked axes.
@@ -375,18 +392,7 @@ class MainLayout(param.Parameterized):
             self.histology_panel.param.refresh,
         )
 
-        # Selectors aligned with their respective plots (3 ephys + 1 histology)
-        controls_row = pn.Row(
-            self.ephys_plots.controls(),
-            self.histology_panel.controls(),
-            sizing_mode="stretch_width",
-        )
-
-        return pn.Column(
-            controls_row,
-            plot_view,
-            sizing_mode="stretch_both",
-        )
+        return plot_view
 
     def _create_control_area(self) -> pn.Column:
         """Create the controls area.
@@ -455,10 +461,10 @@ class MainLayout(param.Parameterized):
         grid[0:10, 0:7] = self._create_ephys_area()
 
         # Slice viewer (columns 7-10, rows 0-4) - independent Y-axis
-        grid[0:4, 7:10] = self._create_slice_viewer_area()
+        grid[0:3, 7:10] = self._create_slice_viewer_area()
 
         # Control area (columns 7-10, rows 4-7)
-        grid[4:7, 7:10] = self._create_control_area()
+        grid[3:7, 7:10] = self._create_control_area()
 
         # Fit area (columns 7-10, rows 7-10)
         grid[7:10, 7:10] = self._create_fit_area()

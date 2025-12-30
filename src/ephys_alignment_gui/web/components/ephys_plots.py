@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Configure HoloViews
 hv.extension("bokeh")
 
+# Don't show toolbar in Holoviews plots
+opts.defaults(toolbar=None)
+
 # Plot type options for each sub-plot
 IMAGE_PLOT_OPTIONS = {
     "Firing Rate": "firing_rate",
@@ -210,7 +213,7 @@ class EphysPlots(param.Parameterized):
             logger.exception(f"Error getting probe data for {plot_type}: {e}")
             return None
 
-    def _create_image_plot(self, data: dict, width: int = 350, height: int = 450) -> hv.Image:
+    def _create_image_plot(self, data: dict, width: int = 350, frame_height: int = 450) -> hv.Image:
         """Create a HoloViews Image from plot data dict."""
         img = data["img"]
         scale = data["scale"]
@@ -229,53 +232,59 @@ class EphysPlots(param.Parameterized):
         image = hv.Image(
             img.T,
             bounds=bounds,
-            kdims=["x", "y"],
+            kdims=["x_img", "y"],
         )
 
         return image.opts(
             opts.Image(
                 cmap=data.get("cmap", "viridis"),
                 clim=tuple(levels),
-                xlabel=data.get("xaxis", ""),
                 ylabel="Depth (μm)",
                 title="",
                 colorbar=True,
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 ylim=y_range,
-                tools=["hover", "box_zoom", "reset"],
+                xaxis=None,
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 margin=0,
             )
         )
 
-    def _create_line_plot(self, data: dict, width: int = 150, height: int = 450) -> hv.Path:
+    def _create_line_plot(self, data: dict, width: int = 150, frame_height: int = 450) -> hv.Path:
         """Create a HoloViews Path (line plot) from plot data dict."""
         x_vals = data["x"]
         y_vals = data["y"]
         y_range = self._get_y_range()
 
-        # Use Path with x, y kdims to match Image plots for axis linking
+        # Use unique x dim name so only y-axis is linked
         path = hv.Path(
             [np.column_stack([x_vals, y_vals])],
-            kdims=["x", "y"],
+            kdims=["x_line", "y"],
         )
 
         return path.opts(
             opts.Path(
                 line_width=2,
                 color="#1f77b4",
-                xlabel=data.get("xaxis", ""),
                 ylabel="",
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 ylim=y_range,
                 yaxis=None,
-                tools=["hover"],
+                xaxis=None,
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 margin=0,
             )
         )
 
-    def _create_scatter_plot(self, data: dict, width: int = 350, height: int = 450) -> hv.Points:
+    def _create_scatter_plot(self, data: dict, width: int = 350, frame_height: int = 450) -> hv.Points:
         """Create a HoloViews scatter plot from plot data dict."""
         x = data["x"]
         y = data["y"]
@@ -293,7 +302,7 @@ class EphysPlots(param.Parameterized):
 
         points = hv.Points(
             (x, y, color_values),
-            kdims=["x", "y"],
+            kdims=["x_img", "y"],
             vdims=["color"],
         )
 
@@ -304,19 +313,22 @@ class EphysPlots(param.Parameterized):
                 clim=tuple(data.get("levels", (0, 1))),
                 size=3,
                 alpha=0.6,
-                xlabel=data.get("xaxis", ""),
                 ylabel="Depth (μm)",
                 title="",
                 colorbar=True,
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 ylim=y_range,
-                tools=["hover", "box_zoom", "reset"],
+                xaxis=None,
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 margin=0,
             )
         )
 
-    def _create_probe_plot(self, data: dict, width: int = 80, height: int = 450) -> hv.Overlay:
+    def _create_probe_plot(self, data: dict, width: int = 80, frame_height: int = 450) -> hv.Element:
         """Create probe geometry plot from bank data.
 
         The probe data contains multiple banks (columns) that need to be
@@ -325,7 +337,7 @@ class EphysPlots(param.Parameterized):
         y_range = self._get_y_range()
 
         if data is None:
-            return hv.Text(0, 0, "No data").opts(width=width, height=height)
+            return hv.Text(0, 0, "No data").opts(width=width, frame_height=frame_height)
 
         img_list = data.get("img", [])
         scale = data.get("scale")
@@ -334,7 +346,7 @@ class EphysPlots(param.Parameterized):
         cmap = data.get("cmap", "viridis")
 
         if not img_list or scale is None or offset is None:
-            return hv.Text(0, 0, "No probe data").opts(width=width, height=height)
+            return hv.Text(0, 0, "No probe data").opts(width=width, frame_height=frame_height)
 
         # Create overlay of bank images
         images = []
@@ -354,12 +366,12 @@ class EphysPlots(param.Parameterized):
             img = hv.Image(
                 bank_img.T,
                 bounds=bounds,
-                kdims=["x", "y"],
+                kdims=["x_probe", "y"],
             )
             images.append(img)
 
         if not images:
-            return hv.Text(0, 0, "No probe data").opts(width=width, height=height)
+            return hv.Text(0, 0, "No probe data").opts(width=width, frame_height=frame_height)
 
         overlay = hv.Overlay(images)
         return overlay.opts(
@@ -371,13 +383,18 @@ class EphysPlots(param.Parameterized):
             ),
             opts.Overlay(
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 xlabel="",
                 ylabel="",
                 ylim=y_range,
                 yaxis=None,
+                xaxis=None,
+                xlim=(0, 1),
                 title="",
-                tools=["hover"],
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 margin=0,
             ),
         )
@@ -386,7 +403,7 @@ class EphysPlots(param.Parameterized):
         """Get the shared Y-axis range for depth plots."""
         return self.state.depth_y_range
 
-    def _create_placeholder_image(self, width: int = 350, height: int = 450) -> hv.Image:
+    def _create_placeholder_image(self, width: int = 350, frame_height: int = 450) -> hv.Image:
         """Create a placeholder 2D image plot."""
         y_range = self._get_y_range()
         # Create gradient placeholder data
@@ -398,50 +415,60 @@ class EphysPlots(param.Parameterized):
         image = hv.Image(
             img,
             bounds=(0, y_range[0], 100, y_range[1]),
-            kdims=["x", "y"],
+            kdims=["x_img", "y"],
         )
         return image.opts(
             opts.Image(
                 cmap="gray",
                 clim=(0, 1),
-                xlabel="Time (s)",
                 ylabel="Depth (μm)",
                 title="",
-                colorbar=True,
+                colorbar=False,
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 ylim=y_range,
+                xlim=(0, 100),
+                xaxis=None,
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 alpha=0.3,
                 margin=0,
             )
         )
 
-    def _create_placeholder_line(self, width: int = 150, height: int = 450) -> hv.Path:
+    def _create_placeholder_line(self, width: int = 150, frame_height: int = 450) -> hv.Path:
         """Create a placeholder line plot."""
         y_range = self._get_y_range()
         y_vals = np.linspace(y_range[0], y_range[1], 100)
-        x_vals = np.zeros_like(y_vals)  # Flat line
+        x_vals = np.random.rand(y_vals.size)  # R line
 
-        # Use Path with x, y kdims to match Image plots for axis linking
+        # Use unique x dim name so only y-axis is linked
         path = hv.Path(
             [np.column_stack([x_vals, y_vals])],
-            kdims=["x", "y"],
+            kdims=["x_line", "y"],
         )
         return path.opts(
             opts.Path(
                 line_width=2,
                 color="#cccccc",
-                xlabel="Firing Rate (Sp/s)",
                 ylabel="",
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 ylim=y_range,
+                xlim=(0, 1),
                 yaxis=None,
+                xaxis=None,
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 margin=0,
             )
         )
 
-    def _create_placeholder_probe(self, width: int = 80, height: int = 450) -> hv.Image:
+    def _create_placeholder_probe(self, width: int = 80, frame_height: int = 450) -> hv.Image:
         """Create a placeholder probe plot."""
         y_range = self._get_y_range()
         # Create a simple vertical gradient
@@ -451,20 +478,25 @@ class EphysPlots(param.Parameterized):
         image = hv.Image(
             img,
             bounds=(0, y_range[0], 10, y_range[1]),
-            kdims=["x", "y"],
+            kdims=["x_probe", "y"],
         )
         return image.opts(
             opts.Image(
                 cmap="gray",
                 clim=(0, 1),
-                xlabel="",
                 ylabel="",
                 title="",
                 colorbar=False,
                 width=width,
-                height=height,
+                frame_height=frame_height,
                 ylim=y_range,
+                xlim=(0, 10),
                 yaxis=None,
+                xaxis=None,
+                toolbar=None,
+                default_tools=[],
+                tools=["ywheel_zoom", "ypan"],
+                active_tools=["ywheel_zoom"],
                 alpha=0.3,
                 margin=0,
             )
@@ -514,8 +546,14 @@ class EphysPlots(param.Parameterized):
 
         # Combine into a Layout with shared Y-axis
         layout = (image_plot + line_plot + probe_plot).opts(
-            opts.Layout(shared_axes=True, merge_tools=True)
+            opts.Layout(shared_axes=True, hspace=0.0, vspace=0.0)
         )
+
+        layout = layout.opts(
+            opts.Element(min_border=0),
+            opts.Overlay(min_border=0),
+        )
+        
         return layout
 
     @param.depends("refresh", "image_plot_type", "line_plot_type", "probe_plot_type")
@@ -528,9 +566,9 @@ class EphysPlots(param.Parameterized):
             HoloViews pane containing linked plots.
         """
         layout = self.get_linked_plots()
-        return pn.pane.HoloViews(layout, sizing_mode="stretch_both")
+        return pn.pane.HoloViews(layout, sizing_mode="stretch_both", margin=0)
 
-    def controls(self) -> pn.Row:
+    def controls(self, selector: str) -> pn.widgets.Select:
         """Return plot control widgets as a row of selectors.
 
         Each selector is placed in a fixed-width container matching its
@@ -542,40 +580,33 @@ class EphysPlots(param.Parameterized):
             Row of plot type selectors aligned with their plots.
         """
         # Create selectors with widths matching plot widths
-        image_selector = pn.widgets.Select(
-            name="2D Plot",
-            options=IMAGE_PLOT_OPTIONS,
-            value=self.image_plot_type,
-            width=120,
-        )
 
-        line_selector = pn.widgets.Select(
-            name="Line Plot",
-            options=LINE_PLOT_OPTIONS,
-            value=self.line_plot_type,
-            width=120,
-        )
-
-        probe_selector = pn.widgets.Select(
-            name="Probe Plot",
-            options=PROBE_PLOT_OPTIONS,
-            value=self.probe_plot_type,
-            width=120,
-        )
-
-        # Link widgets to params
-        image_selector.link(self, value="image_plot_type")
-        line_selector.link(self, value="line_plot_type")
-        probe_selector.link(self, value="probe_plot_type")
-
-        # Wrap each in a Column with fixed width matching the plot
-        # Plot widths: Image=350, Line=150, Probe=80 (+ colorbar ~30)
-        image_col = pn.Column(image_selector, width=380, align="center")
-        line_col = pn.Column(line_selector, width=150, align="center")
-        probe_col = pn.Column(probe_selector, width=80, align="center")
-
-        return pn.Row(
-            image_col,
-            line_col,
-            probe_col,
-        )
+        if selector == 'image':
+            image_selector = pn.widgets.Select(
+                name="2D Plot",
+                options=IMAGE_PLOT_OPTIONS,
+                value=self.image_plot_type,
+                width=120,
+            )
+            image_selector.link(self, value="image_plot_type")
+            return image_selector
+        elif selector == 'line':
+            line_selector = pn.widgets.Select(
+                name="Line Plot",
+                options=LINE_PLOT_OPTIONS,
+                value=self.line_plot_type,
+                width=120,
+            )
+            line_selector.link(self, value="line_plot_type")
+            return line_selector
+        elif selector == 'probe':
+            probe_selector = pn.widgets.Select(
+                name="Probe Plot",
+                options=PROBE_PLOT_OPTIONS,
+                value=self.probe_plot_type,
+                width=100,
+            )
+            probe_selector.link(self, value="probe_plot_type")
+            return probe_selector
+        else:
+            raise ValueError(f"Unknown selector type: {selector}")
