@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from ephys_alignment_gui.visualization.plot_data import PlotData
+from ephys_alignment_gui.web.components.reference_lines import LINE_COLORS
 from ephys_alignment_gui.web.state import AppState
 
 if TYPE_CHECKING:
@@ -50,18 +51,6 @@ PROBE_PLOT_OPTIONS = {
     "LFP 30-80 Hz": "lfp_30_80",
     "LFP 80-200 Hz": "lfp_80_200",
 }
-
-# Line colors for reference lines
-LINE_COLORS = [
-    "#e41a1c",  # red
-    "#377eb8",  # blue
-    "#4daf4a",  # green
-    "#984ea3",  # purple
-    "#ff7f00",  # orange
-    "#ffff33",  # yellow
-    "#a65628",  # brown
-    "#f781bf",  # pink
-]
 
 
 class EphysPlots(param.Parameterized):
@@ -341,7 +330,7 @@ class EphysPlots(param.Parameterized):
             height=600,
             autosize=False,
             showlegend=False,
-            margin=dict(l=50, r=10, t=10, b=10),
+            margin=dict(l=50, r=0, t=10, b=10),
             hovermode="closest",
             dragmode="pan",
             xaxis=dict(fixedrange=True),  # Lock X-axis
@@ -398,7 +387,7 @@ class EphysPlots(param.Parameterized):
                 z=z_invisible,
                 colorscale=[[0, "white"], [1, "white"]],
                 showscale=False,
-                opacity=1,
+                opacity=0,
                 hoverinfo='none',
             )
         )
@@ -454,10 +443,10 @@ class EphysPlots(param.Parameterized):
         # Update layout
         fig.update_layout(
             height=600,
-            width=120,
+            width=100,
             autosize=False,
             showlegend=False,
-            margin=dict(l=0, r=10, t=10, b=10),
+            margin=dict(l=0, r=0, t=10, b=10),
             hovermode="closest",
             dragmode="pan",
             xaxis=dict(fixedrange=True),  # Lock X-axis
@@ -593,12 +582,13 @@ class EphysPlots(param.Parameterized):
             color = LINE_COLORS[i % len(LINE_COLORS)]
             is_selected = i == self._reference_lines.selected_index
 
-            # Add horizontal line shape (spans all three subplots)
+            # Add horizontal line shape extending far beyond visible area
+            # so endpoints are not accessible to users
             fig.add_shape(
                 type="line",
-                x0=0,
-                x1=1,
-                xref="paper",  # Span full width
+                x0=-10,
+                x1=10,
+                xref="paper",  # Paper coordinates: 0-1 is visible, beyond is clipped
                 y0=y_feature,
                 y1=y_feature,
                 yref="y",
@@ -669,28 +659,33 @@ class EphysPlots(param.Parameterized):
         
         logger.debug(f"Relayout event: {relayout_data}")
 
-        # Parse shape drag events
+        # Collect shape Y-position changes (handle both y0 and y1 to keep lines horizontal)
+        shape_y_changes: dict[int, float] = {}
         for key, value in relayout_data.items():
-            if key.startswith("shapes[") and ".y0" in key:
-                # Extract shape index from key like 'shapes[2].y0'
+            if key.startswith("shapes[") and (".y0" in key or ".y1" in key):
                 try:
                     shape_idx = int(key.split("[")[1].split("]")[0])
-                    if self._reference_lines is not None and 0 <= shape_idx < len(self._reference_lines.lines):
-                        # Get current track position
-                        _, y_track = self._reference_lines.lines[shape_idx]
-                        # Update feature position (y_track stays the same)
-                        self._reference_lines.update_line_position(shape_idx, value, y_track)
-                        logger.debug(f"Updated line {shape_idx} feature position to {value:.1f}")
+                    # Use the value (if both y0 and y1 change, last one wins - they should be same)
+                    shape_y_changes[shape_idx] = value
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Failed to parse shape drag event: {e}")
+        
+        # Apply shape position updates
+        for shape_idx, new_y in shape_y_changes.items():
+            if self._reference_lines is not None and 0 <= shape_idx < len(self._reference_lines.lines):
+                # Get current track position
+                _, y_track = self._reference_lines.lines[shape_idx]
+                # Update feature position (y_track stays the same)
+                self._reference_lines.update_line_position(shape_idx, new_y, y_track)
+                logger.debug(f"Updated line {shape_idx} feature position to {new_y:.1f}")
 
-            # Parse Y-axis zoom/pan events for synchronization
-            elif key == "yaxis.range[0]":
-                y_min = relayout_data.get("yaxis.range[0]")
-                y_max = relayout_data.get("yaxis.range[1]")
-                if y_min is not None and y_max is not None:
-                    self.state.depth_y_range = (y_min, y_max)
-                    logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
+        # Parse Y-axis zoom/pan events for synchronization
+        if "yaxis.range[0]" in relayout_data:
+            y_min = relayout_data.get("yaxis.range[0]")
+            y_max = relayout_data.get("yaxis.range[1]")
+            if y_min is not None and y_max is not None:
+                self.state.depth_y_range = (y_min, y_max)
+                logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
     @param.depends("_refresh_counter", "image_plot_type")
     def image_view(self) -> pn.pane.Plotly:

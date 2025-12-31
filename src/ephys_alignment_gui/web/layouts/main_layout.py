@@ -383,39 +383,44 @@ class MainLayout(param.Parameterized):
             self.histology_panel.param.plot_type,
         )
 
-        # Create columns with controls above each plot
+        # Create columns with controls above each plot (no margins for tight layout)
         image_column = pn.Column(
             image_selector,
             image_view,
             sizing_mode="stretch_width",
             height=600,
+            margin=0,
         )
         line_column = pn.Column(
             line_selector,
             line_view,
             sizing_mode="fixed",
             height=600,
+            margin=0,
         )
         probe_column = pn.Column(
             probe_selector,
             probe_view,
             sizing_mode="fixed",
             height=600,
+            margin=0,
         )
         hist_column = pn.Column(
             hist_selector,
             hist_view,
             sizing_mode="fixed",
             height=600,
+            margin=0,
         )
 
-        # Create plots row
+        # Create plots row with no spacing between columns
         plots_row = pn.Row(
             image_column,
             line_column,
             probe_column,
             hist_column,
             sizing_mode="stretch_width",
+            margin=0,
         )
 
         return plots_row
@@ -435,7 +440,6 @@ class MainLayout(param.Parameterized):
         # Reference lines controls below the plots
         ref_lines_view = self.reference_lines.controls()
         ref_lines_section = pn.Row(
-            pn.pane.Markdown("**Reference Lines:**", margin=(5, 10, 0, 0)),
             ref_lines_view,
             sizing_mode="stretch_width",
         )

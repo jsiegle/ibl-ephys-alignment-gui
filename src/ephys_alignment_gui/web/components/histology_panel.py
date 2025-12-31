@@ -14,24 +14,13 @@ import panel as pn
 import param
 import plotly.graph_objects as go
 
+from ephys_alignment_gui.web.components.reference_lines import LINE_COLORS
 from ephys_alignment_gui.web.state import AppState
 
 if TYPE_CHECKING:
     from ephys_alignment_gui.web.components.reference_lines import ReferenceLinesManager
 
 logger = logging.getLogger(__name__)
-
-# Line colors for reference lines
-LINE_COLORS = [
-    "#e41a1c",  # red
-    "#377eb8",  # blue
-    "#4daf4a",  # green
-    "#984ea3",  # purple
-    "#ff7f00",  # orange
-    "#ffff33",  # yellow
-    "#a65628",  # brown
-    "#f781bf",  # pink
-]
 
 
 class HistologyPanel(param.Parameterized):
@@ -85,6 +74,9 @@ class HistologyPanel(param.Parameterized):
         # to avoid duplicate refresh triggers
         self.param.watch(self._on_plot_type_changed, "plot_type")
 
+        # Watch Y-range changes for axis synchronization with ephys plots
+        state.param.watch(self._on_y_range_changed, "depth_y_range")
+
         # Watch reference lines changes if provided
         if reference_lines is not None:
             reference_lines.param.watch(
@@ -97,6 +89,10 @@ class HistologyPanel(param.Parameterized):
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle plot type change."""
+        self._refresh_counter += 1
+
+    def _on_y_range_changed(self, event) -> None:
+        """Handle Y-range change from ephys plots (for synchronization)."""
         self._refresh_counter += 1
 
     def _render_histology_to_image(self, hist_data: dict, y_range: tuple) -> np.ndarray:
@@ -219,11 +215,12 @@ class HistologyPanel(param.Parameterized):
             color = LINE_COLORS[i % len(LINE_COLORS)]
             is_selected = i == self._reference_lines.selected_index
             
+            # Extend line far beyond visible area so endpoints are not accessible
             fig.add_shape(
                 type="line",
-                x0=0,
-                x1=1,
-                xref="x",  # Use data coordinates
+                x0=-10,
+                x1=10,
+                xref="paper",  # Paper coordinates: 0-1 is visible, beyond is clipped
                 y0=y_track,
                 y1=y_track,
                 yref="y",
@@ -438,32 +435,36 @@ class HistologyPanel(param.Parameterized):
         if not relayout_data:
             return
         
-        # Parse shape drag events (track position updates)
-        # Now in physical coordinates, no conversion needed
+        # Collect shape Y-position changes (handle both y0 and y1 to keep lines horizontal)
+        shape_y_changes: dict[int, float] = {}
         for key, value in relayout_data.items():
-            if key.startswith("shapes[") and ".y0" in key:
+            if key.startswith("shapes[") and (".y0" in key or ".y1" in key):
                 try:
                     shape_idx = int(key.split("[")[1].split("]")[0])
-                    if self._reference_lines is not None and 0 <= shape_idx < len(self._reference_lines.lines):
-                        # Get current feature position
-                        y_feat, _ = self._reference_lines.lines[shape_idx]
-                        # Update track position (y_feat stays the same)
-                        self._reference_lines.update_line_position(shape_idx, y_feat, value)
-                        logger.debug(f"Updated line {shape_idx} track position to {value:.1f}")
+                    # Use the value (if both y0 and y1 change, last one wins - they should be same)
+                    shape_y_changes[shape_idx] = value
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Failed to parse shape drag event: {e}")
-            
-            # Parse Y-axis zoom/pan events for synchronization
-            # Already in physical coordinates
-            elif key == "yaxis.range[0]":
-                y_min = relayout_data.get("yaxis.range[0]")
-                y_max = relayout_data.get("yaxis.range[1]")
-                if y_min is not None and y_max is not None:
-                    # Only update if range actually changed (avoid infinite loop)
-                    current_range = self.state.depth_y_range
-                    if current_range != (y_min, y_max):
-                        self.state.depth_y_range = (y_min, y_max)
-                        logger.debug(f"Histology updated Y-range to ({y_min:.1f}, {y_max:.1f})")
+        
+        # Apply shape position updates (track position in histology)
+        for shape_idx, new_y in shape_y_changes.items():
+            if self._reference_lines is not None and 0 <= shape_idx < len(self._reference_lines.lines):
+                # Get current feature position
+                y_feat, _ = self._reference_lines.lines[shape_idx]
+                # Update track position (y_feat stays the same)
+                self._reference_lines.update_line_position(shape_idx, y_feat, new_y)
+                logger.debug(f"Updated line {shape_idx} track position to {new_y:.1f}")
+
+        # Parse Y-axis zoom/pan events for synchronization
+        if "yaxis.range[0]" in relayout_data:
+            y_min = relayout_data.get("yaxis.range[0]")
+            y_max = relayout_data.get("yaxis.range[1]")
+            if y_min is not None and y_max is not None:
+                # Only update if range actually changed (avoid infinite loop)
+                current_range = self.state.depth_y_range
+                if current_range != (y_min, y_max):
+                    self.state.depth_y_range = (y_min, y_max)
+                    logger.debug(f"Histology updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
     def controls(self) -> pn.widgets.Select:
         """Return histology type selector in fixed-width container.
