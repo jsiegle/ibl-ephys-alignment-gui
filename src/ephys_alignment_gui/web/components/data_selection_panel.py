@@ -55,30 +55,53 @@ class DataSelectionPanel(param.Parameterized):
             value=0,
             sizing_mode="stretch_width",
         )
-        self._load_button = pn.widgets.Button(
-            name="Load Data",
-            button_type="primary",
-            sizing_mode="stretch_width",
-        )
         self._status_indicator = pn.indicators.LoadingSpinner(
             value=False,
             size=20,
             color="primary",
         )
+        
+        # Button created in view() method with reactive disabled state
 
-        # Wire up callbacks
-        self._load_button.on_click(self._on_load_clicked)
-        self._input_path_input.param.watch(self._on_input_path_changed, "value")
-
-    def _on_input_path_changed(self, event) -> None:
-        """Handle input path text changes."""
-        path_str = event.new
-        if path_str and Path(path_str).exists():
-            self._load_button.disabled = False
-            # Try to detect number of shanks
-            self._detect_shanks(Path(path_str))
-        else:
-            self._load_button.disabled = True
+    def _is_valid_path(self, path_str: str) -> bool:
+        """Check if the given path string is a valid directory.
+        
+        Parameters
+        ----------
+        path_str : str
+            Path string to validate.
+            
+        Returns
+        -------
+        bool
+            True if path exists and is a directory.
+        """
+        if not path_str:
+            return False
+        
+        try:
+            path = Path(path_str)
+            return path.exists() and path.is_dir()
+        except Exception as e:
+            logger.warning(f"Error checking path '{path_str}': {e}")
+            return False
+    
+    def _check_path_and_update(self, path_str: str) -> None:
+        """Check path validity and update shank detection.
+        
+        This is called when the path changes to detect available shanks.
+        """
+        if not path_str:
+            return
+            
+        try:
+            path = Path(path_str)
+            if path.exists() and path.is_dir():
+                logger.debug(f"Valid directory found: {path}")
+                # Try to detect number of shanks
+                self._detect_shanks(path)
+        except Exception:
+            pass
 
     def _detect_shanks(self, input_path: Path) -> None:
         """Detect available shanks from the input path."""
@@ -107,16 +130,18 @@ class DataSelectionPanel(param.Parameterized):
     def _on_load_clicked(self, event) -> None:
         """Handle load button click."""
         input_path = self._input_path_input.value
+        logger.debug(f"Load button clicked with input path: {input_path}")
         if not input_path:
             self.state.set_status("Please enter an input path", is_loading=False)
             return
 
-        # Trigger async load
-        asyncio.create_task(self._load_data_async())
+        # Trigger async load using Panel's execution method
+        pn.state.execute(self._load_data_async)
 
     async def _load_data_async(self) -> None:
         """Load data asynchronously to avoid blocking the UI."""
         input_path = Path(self._input_path_input.value)
+        logger.debug(f"Starting async data load from: {input_path}")
         output_path = (
             Path(self._output_path_input.value)
             if self._output_path_input.value
@@ -124,8 +149,7 @@ class DataSelectionPanel(param.Parameterized):
         )
         shank_idx = self._shank_selector.value
 
-        # Update UI state
-        self._load_button.disabled = True
+        # Update UI state (button disabled state is handled by reactive value)
         self._status_indicator.value = True
         self.state.set_status("Loading data...", is_loading=True)
 
@@ -150,7 +174,6 @@ class DataSelectionPanel(param.Parameterized):
             self.state.data_loaded = False
 
         finally:
-            self._load_button.disabled = False
             self._status_indicator.value = False
 
     def _load_data_sync(
@@ -205,12 +228,33 @@ class DataSelectionPanel(param.Parameterized):
         pn.Column
             Panel column containing the data loader UI.
         """
+        # Create load button with reactive disabled state
+        # The button is disabled when the path is invalid
+        @pn.depends(self._input_path_input.param.value, watch=False)
+        def create_button(path_value):
+            is_valid = self._is_valid_path(path_value)
+            button = pn.widgets.Button(
+                name="Load Data",
+                button_type="primary",
+                sizing_mode="stretch_width",
+                disabled=not is_valid,
+            )
+            button.on_click(self._on_load_clicked)
+            
+            # Also trigger shank detection when path becomes valid
+            if is_valid:
+                self._check_path_and_update(path_value)
+            
+            return button
+        
+        button_pane = pn.panel(create_button)
+        
         return pn.Column(
             self._input_path_input,
             self._shank_selector,
             self._output_path_input,
             pn.Row(
-                self._load_button,
+                button_pane,
                 self._status_indicator,
                 sizing_mode="stretch_width",
             ),

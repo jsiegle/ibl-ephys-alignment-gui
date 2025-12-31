@@ -304,7 +304,7 @@ class EphysPlots(param.Parameterized):
             y = np.linspace(y_min, y_max, n_y)
             
             # Create a simple vertical gradient (single bank)
-            img = np.linspace(0, 1, n_y).reshape(-1, 1)
+            img = np.linspace(0, 1, n_y).reshape(-1, 1).T
             
             self._placeholder_probe_data = {
                 "img": [img],
@@ -335,18 +335,23 @@ class EphysPlots(param.Parameterized):
         if self._reference_lines is not None:
             self._add_reference_lines_to_figure(fig)
 
-        # Update layout
-        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        # Update axes
+        fig.update_xaxes(
+            showticklabels=False, 
+            showgrid=False, 
+            zeroline=False)
+        
         fig.update_yaxes(
             range=[y_range[0], y_range[1]],
             title_text="Depth (μm)",
-            showgrid=True,
-            gridcolor="lightgray",
+            showgrid=False,
             fixedrange=False,
         )
 
+        # Update layout
         fig.update_layout(
             height=600,
+            autosize=False,
             showlegend=False,
             margin=dict(l=50, r=10, t=10, b=10),
             hovermode="closest",
@@ -367,6 +372,8 @@ class EphysPlots(param.Parameterized):
         if line_data is None:
             line_data = self._get_placeholder_line_data()
 
+
+
         # Add line trace
         if line_data:
             self._add_line_trace(fig, line_data)
@@ -375,8 +382,12 @@ class EphysPlots(param.Parameterized):
         if self._reference_lines is not None:
             self._add_reference_lines_to_figure(fig)
 
-        # Update layout
-        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        # Update axes
+        fig.update_xaxes(
+            showticklabels=False, 
+            showgrid=False, 
+            zeroline=False)
+        
         fig.update_yaxes(
             range=[y_range[0], y_range[1]],
             showticklabels=False,
@@ -384,11 +395,35 @@ class EphysPlots(param.Parameterized):
             fixedrange=False,
         )
 
+        logger.debug(f"Creating background heatmap with y_range: {fig.layout.yaxis.range}")
+
+        # Add invisible heatmap covering full plot area to capture all clicks
+        # This is the key - heatmaps respond to clicks anywhere within their bounds
+        y_invisible = np.linspace(fig.layout.yaxis.range[0], fig.layout.yaxis.range[1], 100)
+        x_invisible = np.linspace(np.min(line_data['x']), np.max(line_data['x']), 100)
+        z_invisible = np.zeros((len(x_invisible), len(y_invisible)))
+        
+        fig.add_trace(
+            go.Heatmap(
+                x=x_invisible,
+                y=y_invisible,
+                z=z_invisible,
+                colorscale=[[0, "white"], [1, "white"]],
+                showscale=False,
+                opacity=1,
+                hoverinfo='none',
+            )
+        )
+
+        # Update layout
         fig.update_layout(
             height=600,
+            width=120,
+            autosize=False,
             showlegend=False,
             margin=dict(l=0, r=0, t=10, b=10),
             hovermode="closest",
+            clickmode="event",  # Generate click events even on empty space
             dragmode="pan",
             xaxis=dict(fixedrange=True),  # Lock X-axis
             yaxis=dict(fixedrange=False),  # Allow Y-axis pan/zoom
@@ -402,6 +437,8 @@ class EphysPlots(param.Parameterized):
         y_range = self.state.depth_y_range
         probe_data = self._get_probe_data(self.probe_plot_type)
 
+        logger.debug("Creating probe figure")
+
         # Use placeholder data if no real data
         if probe_data is None:
             probe_data = self._get_placeholder_probe_data()
@@ -414,8 +451,11 @@ class EphysPlots(param.Parameterized):
         if self._reference_lines is not None:
             self._add_reference_lines_to_figure(fig)
 
-        # Update layout
-        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        # Update axes
+        fig.update_xaxes(
+            showticklabels=False, 
+            showgrid=False, 
+            zeroline=False)
         fig.update_yaxes(
             range=[y_range[0], y_range[1]],
             showticklabels=False,
@@ -423,8 +463,11 @@ class EphysPlots(param.Parameterized):
             fixedrange=False,
         )
 
+        # Update layout
         fig.update_layout(
             height=600,
+            width=120,
+            autosize=False,
             showlegend=False,
             margin=dict(l=0, r=10, t=10, b=10),
             hovermode="closest",
@@ -455,6 +498,7 @@ class EphysPlots(param.Parameterized):
                 colorscale=cmap,
                 zmin=levels[0],
                 zmax=levels[1],
+                hoverinfo='none',
                 showscale=True,
                 colorbar=dict(thickness=10, len=0.7),
             )
@@ -504,6 +548,7 @@ class EphysPlots(param.Parameterized):
                 x=x_vals,
                 y=y_vals,
                 mode="lines",
+                hoverinfo='skip',
                 line=dict(color="#1f77b4", width=2),
             )
         )
@@ -516,11 +561,15 @@ class EphysPlots(param.Parameterized):
         levels = data.get("levels", (0, 1))
         cmap = data.get("cmap", "Viridis")
 
+        logger.debug(f"Adding probe trace with {len(img_list)} banks")
+
         if not img_list or scale is None or offset is None:
             return
 
         # Add each bank as a separate heatmap
         for i, bank_img in enumerate(img_list):
+
+            logger.debug(f"Adding bank {i} to probe plot")
             if bank_img is None:
                 continue
             bank_scale = scale[i] if len(scale.shape) > 1 else scale
@@ -528,6 +577,10 @@ class EphysPlots(param.Parameterized):
 
             x_coords = bank_offset[0] + np.arange(bank_img.shape[0]) * bank_scale[0]
             y_coords = bank_offset[1] + np.arange(bank_img.shape[1]) * bank_scale[1]
+
+            #logger.debug(f"Bank {i} x_coords: {x_coords}")
+            #logger.debug(f"Bank {i} y_coords: {y_coords}")  
+            #logger.debug(f"Bank {i} img shape: {bank_img.shape}")
 
             fig.add_trace(
                 go.Heatmap(
@@ -538,6 +591,7 @@ class EphysPlots(param.Parameterized):
                     zmin=levels[0],
                     zmax=levels[1],
                     showscale=False,
+                    hoverinfo='none',
                 )
             )
 
@@ -579,8 +633,13 @@ class EphysPlots(param.Parameterized):
         click_data : dict
             Click event data from Plotly containing point coordinates.
         """
+        logger.info(f"EphysPlots._on_click called with data: {click_data}")
+        
         if not click_data or not self._reference_lines:
+            logger.info(f"Ignoring click: click_data={bool(click_data)}, reference_lines={bool(self._reference_lines)}")
             return
+        
+        logger.debug(f"Click event data: {click_data}")
         
         # Extract Y coordinate from click
         points = click_data.get("points", [])
@@ -606,6 +665,7 @@ class EphysPlots(param.Parameterized):
             self._last_click_time = 0
             self._last_click_y = None
         else:
+            logger.info(f"Single-click at {y_clicked:.1f}")
             # First click - store it
             self._last_click_time = current_time
             self._last_click_y = y_clicked
@@ -620,6 +680,8 @@ class EphysPlots(param.Parameterized):
         """
         if not relayout_data:
             return
+        
+        logger.debug(f"Relayout event: {relayout_data}")
 
         # Parse shape drag events
         for key, value in relayout_data.items():
@@ -645,7 +707,7 @@ class EphysPlots(param.Parameterized):
                     logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
     @param.depends("refresh", "image_plot_type")
-    def view_image(self) -> pn.pane.Plotly:
+    def image_view(self) -> pn.pane.Plotly:
         """Return the image plot pane.
 
         Returns
@@ -660,10 +722,23 @@ class EphysPlots(param.Parameterized):
             sizing_mode="stretch_both",
             config={
                 "scrollZoom": True,
-                "displayModeBar": True,
-                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displayModeBar": False,
                 "displaylogo": False,
-                "editable": True,
+                "editable": True,  # Enable editing
+                "doubleClick": False,  # Disable double-click reset/zoom to allow custom handling
+                "edits": {
+                    "shapePosition": True,  # Allow dragging shapes (reference lines)
+                    "annotationPosition": False,
+                    "annotationTail": False,
+                    "annotationText": False,
+                    "axisTitleText": False,  # Disable axis title editing
+                    "colorbarPosition": False,
+                    "colorbarTitleText": False,
+                    "legendPosition": False,
+                    "legendText": False,
+                    "titleText": False,  # Disable plot title editing
+                },
+                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
             },
         )
         
@@ -677,7 +752,7 @@ class EphysPlots(param.Parameterized):
         return pane
 
     @param.depends("refresh", "line_plot_type")
-    def view_line(self) -> pn.pane.Plotly:
+    def line_view(self) -> pn.pane.Plotly:
         """Return the line plot pane.
 
         Returns
@@ -692,10 +767,23 @@ class EphysPlots(param.Parameterized):
             sizing_mode="stretch_both",
             config={
                 "scrollZoom": True,
-                "displayModeBar": True,
-                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displayModeBar": False,
                 "displaylogo": False,
-                "editable": True,
+                "editable": True,  # Enable editing
+                "doubleClick": False,  # Disable double-click reset/zoom to allow custom handling
+                "edits": {
+                    "shapePosition": True,  # Allow dragging shapes (reference lines)
+                    "annotationPosition": False,
+                    "annotationTail": False,
+                    "annotationText": False,
+                    "axisTitleText": False,  # Disable axis title editing
+                    "colorbarPosition": False,
+                    "colorbarTitleText": False,
+                    "legendPosition": False,
+                    "legendText": False,
+                    "titleText": False,  # Disable plot title editing
+                },
+                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
             },
         )
         
@@ -709,7 +797,7 @@ class EphysPlots(param.Parameterized):
         return pane
 
     @param.depends("refresh", "probe_plot_type")
-    def view_probe(self) -> pn.pane.Plotly:
+    def probe_view(self) -> pn.pane.Plotly:
         """Return the probe plot pane.
 
         Returns
@@ -724,10 +812,23 @@ class EphysPlots(param.Parameterized):
             sizing_mode="stretch_both",
             config={
                 "scrollZoom": True,
-                "displayModeBar": True,
-                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displayModeBar": False,
                 "displaylogo": False,
-                "editable": True,
+                "editable": True,  # Enable editing
+                "doubleClick": False,  # Disable double-click reset/zoom to allow custom handling
+                "edits": {
+                    "shapePosition": True,  # Allow dragging shapes (reference lines)
+                    "annotationPosition": False,
+                    "annotationTail": False,
+                    "annotationText": False,
+                    "axisTitleText": False,  # Disable axis title editing
+                    "colorbarPosition": False,
+                    "colorbarTitleText": False,
+                    "legendPosition": False,
+                    "legendText": False,
+                    "titleText": False,  # Disable plot title editing
+                },
+                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
             },
         )
         

@@ -115,10 +115,11 @@ class HistologyPanel(param.Parameterized):
         Returns
         -------
         np.ndarray
-            RGB image (n_pixels, 1, 3) representing colored region bars.
+            RGB image (n_pixels, width, 3) representing colored region bars.
         """
         n_pixels = 500
-        img = np.zeros((n_pixels, 1, 3), dtype=np.uint8)
+        width = 10  # Make bar wider for better visibility
+        img = np.zeros((n_pixels, width, 3), dtype=np.uint8)
         
         if not hist_data or "region" not in hist_data:
             return img
@@ -126,23 +127,33 @@ class HistologyPanel(param.Parameterized):
         regions = hist_data.get("region", [])
         colours = hist_data.get("colour", [])
         
-        for region, colour in zip(regions, colours):
+        logger.debug(f"Rendering {len(regions)} histology regions, y_range={y_range}")
+        
+        for i, (region, colour) in enumerate(zip(regions, colours)):
             if len(region) < 2:
                 continue
             y_min, y_max = region[0], region[1]
+
+            logger.debug(f"Region {i}: y=({y_min:.1f},{y_max:.1f}) colour={colour}")
             
             # Convert y positions to pixel indices
             idx_min = int((y_min - y_range[0]) / (y_range[1] - y_range[0]) * n_pixels)
             idx_max = int((y_max - y_range[0]) / (y_range[1] - y_range[0]) * n_pixels)
             idx_min = max(0, min(n_pixels - 1, idx_min))
             idx_max = max(0, min(n_pixels, idx_max))
+
+            logger.debug(f"Region {i} pixel indices: ({idx_min}, {idx_max})")
             
             if isinstance(colour, (list, tuple)) and len(colour) >= 3:
-                img[idx_min:idx_max, 0, 0] = int(colour[0])
-                img[idx_min:idx_max, 0, 1] = int(colour[1])
-                img[idx_min:idx_max, 0, 2] = int(colour[2])
+                img[idx_min:idx_max, :, 0] = int(colour[0])
+                img[idx_min:idx_max, :, 1] = int(colour[1])
+                img[idx_min:idx_max, :, 2] = int(colour[2])
             else:
-                img[idx_min:idx_max, 0, :] = 128  # Gray default
+                img[idx_min:idx_max, :, :] = 128  # Gray default
+        
+        # Log summary of rendered image
+        non_zero_pixels = np.sum(np.any(img > 0, axis=(1, 2)))
+        logger.info(f"Rendered histology image: shape={img.shape}, non_zero_rows={non_zero_pixels}/{n_pixels}, dtype={img.dtype}")
         
         return img
 
@@ -193,30 +204,6 @@ class HistologyPanel(param.Parameterized):
             }
         return self._placeholder_hist_data
 
-    def _create_placeholder_image(self, y_range: tuple) -> np.ndarray:
-        """Create placeholder histology image with gray gradient.
-        
-        Parameters
-        ----------
-        y_range : tuple
-            (y_min, y_max) depth range.
-            
-        Returns
-        -------
-        np.ndarray
-            RGB placeholder image.
-        """
-        n_pixels = 500
-        img = np.zeros((n_pixels, 1, 3), dtype=np.uint8)
-        
-        # Create alternating gray bars
-        bar_height = n_pixels // 10
-        for i in range(10):
-            gray = 180 + (i % 2) * 40
-            img[i * bar_height:(i + 1) * bar_height, 0, :] = gray
-        
-        return img
-
     def _add_reference_lines_to_figure(self, fig: go.Figure) -> None:
         """Add draggable reference lines at track positions.
         
@@ -264,46 +251,144 @@ class HistologyPanel(param.Parameterized):
         y_range = self._get_y_range()
         
         # Use placeholder data if no real data
+        using_placeholder = False
         if hist_data is None or not hist_data.get("region"):
             hist_data = self._get_placeholder_hist_data()
+            using_placeholder = True
+            logger.info(f"Using placeholder histology data (real data not available)")
+        else:
+            logger.info(f"Using real histology data with {len(hist_data.get('region', []))} regions")
         
         # Render histology as RGB image
         img = self._render_histology_to_image(hist_data, y_range)
+
+        logger.debug(f"Creating histology image figure with shape {img.shape}") 
         
         # Flip image vertically because Plotly Image trace has origin at top-left
         # but we want y-axis to increase upward
         img = np.flip(img, axis=0)
+
+        logger.debug(f"Creating histology figure with y_range {y_range}")
         
         fig = go.Figure()
         
-        # Add RGB image
-        fig.add_trace(
-            go.Image(
-                z=img,
-                x0=0,
-                dx=1,
-                y0=y_range[0],
-                dy=(y_range[1] - y_range[0]) / img.shape[0],
+        # Create physical coordinate arrays for the image
+        n_pixels = img.shape[0]
+        y_coords = np.linspace(y_range[1], y_range[0], n_pixels)  # Top to bottom
+        x_coords = np.array([0, 1])  # Just a narrow bar
+        
+        # Convert RGB image to heatmap format
+        # We'll create a heatmap for each color channel and overlay them
+        # Actually, simpler approach: create colored rectangles for each region directly
+        # But since we already have the rendered image, let's use a different approach:
+        # Convert RGB to a single grayscale value and use custom colorscale
+        
+        # For each pixel row, we'll add it as a thin rectangle with the right color
+        # This is inefficient but allows us to use physical coordinates
+        
+        # Better approach: Use go.Image but with custom x and y arrays
+        # Unfortunately go.Image doesn't support custom coordinates
+        
+        # Best approach: Create a single-pixel-wide heatmap for each row with its color
+        # Let's use a simple heatmap with the RGB data encoded
+        
+        # Convert RGB to grayscale index and create custom colorscale
+        # Actually, let's just use Plotly's ability to display images with coordinates
+        # by creating a list of colored rectangles
+        
+        # Simplest working solution: Add image as shapes (colored rectangles)
+        hist_data = self.state.hist_data
+        if hist_data is None or not hist_data.get("region"):
+            hist_data = self._get_placeholder_hist_data()
+        
+        regions = hist_data.get("region", [])
+        colours = hist_data.get("colour", [])
+
+        
+        # Add each brain region as a bar (cannot be edited, unlike shapes)
+        # We'll use horizontal bars spanning the full width
+        for i, (region, colour) in enumerate(zip(regions, colours)):
+            if len(region) < 2:
+                continue
+            y_min, y_max = region[0], region[1]
+            y_center = (y_min + y_max) / 2
+            height = y_max - y_min
+            
+            if isinstance(colour, (list, tuple)) and len(colour) >= 3:
+                color_str = f"rgb({int(colour[0])},{int(colour[1])},{int(colour[2])})"
+            else:
+                color_str = "rgb(128,128,128)"
+            
+            # Add as a horizontal bar trace
+            fig.add_trace(
+                  go.Bar(
+                    x=[1],  # Width of 1 to span the plot
+                    y=[y_center],
+                    width=[height],  # Bar height in y-direction
+                    marker=dict(color=color_str, line=dict(width=0)),
+                    orientation='h',
+                    showlegend=False,
+                    base=0,
+                    hoverinfo='skip',
+                )
             )
+        
+        logger.debug(f'Added {len(regions)} region bars')
+
+        # Set axis ranges using physical coordinates
+        fig.update_xaxes(
+            visible=False,
+            range=[0, 1],
+            scaleanchor=None,
         )
-        
-        # Add reference lines if available
-        self._add_reference_lines_to_figure(fig)
-        
-        fig.update_xaxes(visible=False, range=[0, 1])
         fig.update_yaxes(
-            range=[y_range[0], y_range[1]],
             visible=True,
+            range=[y_range[0], y_range[1]],
             showgrid=False,
             showticklabels=False,
+            autorange=False,
+            scaleanchor=None,
+            fixedrange=False,  # Allow zoom
         )
+
+        logger.debug(f"Creating background heatmap with y_range: {fig.layout.yaxis.range}")
+        logger.debug(f"Creating background heatmap with x_range: {fig.layout.xaxis.range}")
+
+        # Add invisible heatmap covering full plot area to capture all clicks
+        # Heatmaps respond to clicks anywhere within their bounds
+        y_invisible = np.linspace(fig.layout.yaxis.range[0], fig.layout.yaxis.range[1], 100)
+        x_invisible =  np.linspace(fig.layout.xaxis.range[0], fig.layout.xaxis.range[1], 100)
+        z_invisible = np.zeros((len(x_invisible), len(y_invisible)))
+        
+        fig.add_trace(
+            go.Heatmap(
+                x=x_invisible,
+                y=y_invisible,
+                z=z_invisible,
+                colorscale=[[0, "white"], [1, "white"]],
+                showscale=False,
+                hovertemplate="",
+                opacity=1,
+                hoverinfo='none',
+            )
+        )
+
+        # Add reference lines if available
+        self._add_reference_lines_to_figure(fig)
+
+        logger.debug(f'Final axis ranges - X: {fig.layout.xaxis.range}, Y: {fig.layout.yaxis.range}')
         
         fig.update_layout(
             width=100,
             height=600,
             margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(fixedrange=True),
-            yaxis=dict(fixedrange=False),  # Allow zoom
+            xaxis=dict(fixedrange=True, constrain='domain'),
+            yaxis=dict(scaleanchor=None, constrain='domain'),
+            hovermode="closest",
+            clickmode="event",  # Generate click events even on empty space
+            dragmode="pan",  # Allow panning, but shapes can still be dragged
+            barmode='overlay',  # Overlay bars instead of stacking
+            bargap=0,  # No gap between bars
         )
         
         return fig
@@ -316,10 +401,13 @@ class HistologyPanel(param.Parameterized):
         click_data : dict
             Click event data from Plotly containing point coordinates.
         """
+        logger.info(f"HistologyPanel._on_click called with data: {click_data}")
+        
         if not click_data or not self._reference_lines:
+            logger.info(f"Ignoring click: click_data={bool(click_data)}, reference_lines={bool(self._reference_lines)}")
             return
         
-        # Extract Y coordinate from click
+        # Extract Y coordinate from click (already in physical coordinates)
         points = click_data.get("points", [])
         if not points:
             return
@@ -359,6 +447,7 @@ class HistologyPanel(param.Parameterized):
             return
         
         # Parse shape drag events (track position updates)
+        # Now in physical coordinates, no conversion needed
         for key, value in relayout_data.items():
             if key.startswith("shapes[") and ".y0" in key:
                 try:
@@ -373,6 +462,7 @@ class HistologyPanel(param.Parameterized):
                     logger.warning(f"Failed to parse shape drag event: {e}")
             
             # Parse Y-axis zoom/pan events for synchronization
+            # Already in physical coordinates
             elif key == "yaxis.range[0]":
                 y_min = relayout_data.get("yaxis.range[0]")
                 y_max = relayout_data.get("yaxis.range[1]")
@@ -396,7 +486,7 @@ class HistologyPanel(param.Parameterized):
         return selector
 
     @param.depends("refresh")
-    def view(self) -> pn.pane.Plotly:
+    def histology_view(self) -> pn.pane.Plotly:
         """Return the Plotly histology figure.
 
         Returns
@@ -413,7 +503,21 @@ class HistologyPanel(param.Parameterized):
                 "scrollZoom": True,
                 "displayModeBar": False,
                 "displaylogo": False,
-                "editable": True,  # Enable shape editing
+                "editable": True,  # Enable editing
+                "doubleClick": False,  # Disable double-click reset/zoom to allow custom handling
+                "edits": {
+                    "shapePosition": True,  # Allow dragging shapes (reference lines)
+                    "annotationPosition": False,
+                    "annotationTail": False,
+                    "annotationText": False,
+                    "axisTitleText": False,  # Disable axis title editing
+                    "colorbarPosition": False,
+                    "colorbarTitleText": False,
+                    "legendPosition": False,
+                    "legendText": False,
+                    "titleText": False,  # Disable plot title editing
+                },
+                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
             },
         )
         

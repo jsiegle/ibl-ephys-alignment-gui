@@ -192,6 +192,10 @@ def main():
 
     app = AlignmentApp()
 
+    pn.config.raise_on_error = True      # surface tracebacks
+    pn.config.exception_handler = None  # don't swallow exceptions
+    pn.config.autoreload = True         # hot reload (like --dev)
+
     # Serve the application
     pn.serve(
         app.view,

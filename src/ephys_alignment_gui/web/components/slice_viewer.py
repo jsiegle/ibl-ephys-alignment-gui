@@ -128,8 +128,9 @@ class SliceViewer(param.Parameterized):
             width=250,
             height=250,
             margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(fixedrange=True),
-            yaxis=dict(fixedrange=True),
+            xaxis=dict(fixedrange=False),
+            yaxis=dict(fixedrange=False),
+            dragmode="pan",
         )
         
         return fig
@@ -193,7 +194,7 @@ class SliceViewer(param.Parameterized):
                 fig,
                 sizing_mode="stretch_both",
                 config={
-                    "scrollZoom": False,
+                    "scrollZoom": True,
                     "displayModeBar": False,
                     "displaylogo": False,
                 },

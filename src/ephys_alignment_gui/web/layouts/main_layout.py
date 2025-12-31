@@ -359,23 +359,27 @@ class MainLayout(param.Parameterized):
         # Create columns with controls above each plot
         image_column = pn.Column(
             image_selector,
-            self.ephys_plots.view_image(),
-            sizing_mode="stretch_both",
+            self.ephys_plots.image_view(),
+            sizing_mode="stretch_width",
+            height=600,
         )
         line_column = pn.Column(
             line_selector,
-            self.ephys_plots.view_line(),
-            sizing_mode="stretch_both",
+            self.ephys_plots.line_view(),
+            sizing_mode="fixed",
+            height=600,
         )
         probe_column = pn.Column(
             probe_selector,
-            self.ephys_plots.view_probe(),
-            sizing_mode="stretch_both",
+            self.ephys_plots.probe_view(),
+            sizing_mode="fixed",
+            height=600,
         )
         hist_column = pn.Column(
             hist_selector,
-            self.histology_panel.view(),
-            sizing_mode="stretch_both",
+            self.histology_panel.histology_view(),
+            sizing_mode="fixed",
+            height=600,
         )
 
         # Create plots row
@@ -384,7 +388,7 @@ class MainLayout(param.Parameterized):
             line_column,
             probe_column,
             hist_column,
-            sizing_mode="stretch_both",
+            sizing_mode="stretch_width",
         )
 
         return plots_row
