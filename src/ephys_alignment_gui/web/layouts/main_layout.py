@@ -149,9 +149,11 @@ class MainLayout(param.Parameterized):
                 logger.warning(f"Failed to load slice data: {e}")
                 self.state.slice_data = None
 
-            # Explicitly refresh all dependent components
-            self.slice_viewer.param.trigger("refresh")
-            self.histology_panel.param.trigger("refresh")
+            # Explicitly refresh all visualization components
+            # Note: ephys_plots has its own watcher on data_loaded, but we trigger
+            # explicitly here as a backup in case of async timing issues
+            self.ephys_plots._refresh_counter += 1
+            self.slice_viewer._refresh_counter += 1
 
             logger.info("EphysAlignment initialized successfully")
         except Exception as e:
@@ -182,7 +184,7 @@ class MainLayout(param.Parameterized):
             }
 
             # Trigger histology panel refresh
-            self.histology_panel.param.trigger("refresh")
+            self.histology_panel._refresh_counter += 1
             logger.debug(f"Updated histology data at alignment index {idx}")
         except Exception as e:
             logger.exception(f"Failed to update histology data: {e}")
@@ -338,46 +340,71 @@ class MainLayout(param.Parameterized):
         self.reference_lines.remove_last_line()
         self.param.trigger("refresh")
 
-    def _create_linked_depth_plots(self) -> pn.Column:
+    def _create_linked_depth_plots(self) -> pn.Row:
         """Create all depth plots with linked Y-axes.
 
         Combines ephys plots (image, line, probe) and histology into
-        separate columns with their controls. Plotly handles Y-axis 
-        linking via shared state.
+        separate columns with their controls. Each plot is wrapped in
+        pn.bind to make it reactive to its own _refresh_counter.
 
         Returns
         -------
-        pn.Column
-            Column containing controls and plots.
+        pn.Row
+            Row containing controls and plots.
         """
-        # Get controls
+        # Get controls (static widgets)
         image_selector = self.ephys_plots.controls(selector='image')
         line_selector = self.ephys_plots.controls(selector='line')
         probe_selector = self.ephys_plots.controls(selector='probe')
         hist_selector = self.histology_panel.controls()
 
+        # Wrap each view method in pn.bind to make it reactive.
+        # Each plot only updates when its own parameters change.
+        # Use lambdas because the view methods have @param.depends decorators
+        # which conflict with direct pn.bind usage.
+        image_view = pn.bind(
+            lambda _1, _2: self.ephys_plots.image_view(),
+            self.ephys_plots.param._refresh_counter,
+            self.ephys_plots.param.image_plot_type,
+        )
+        line_view = pn.bind(
+            lambda _1, _2: self.ephys_plots.line_view(),
+            self.ephys_plots.param._refresh_counter,
+            self.ephys_plots.param.line_plot_type,
+        )
+        probe_view = pn.bind(
+            lambda _1, _2: self.ephys_plots.probe_view(),
+            self.ephys_plots.param._refresh_counter,
+            self.ephys_plots.param.probe_plot_type,
+        )
+        hist_view = pn.bind(
+            lambda _1, _2: self.histology_panel.histology_view(),
+            self.histology_panel.param._refresh_counter,
+            self.histology_panel.param.plot_type,
+        )
+
         # Create columns with controls above each plot
         image_column = pn.Column(
             image_selector,
-            self.ephys_plots.image_view(),
+            image_view,
             sizing_mode="stretch_width",
             height=600,
         )
         line_column = pn.Column(
             line_selector,
-            self.ephys_plots.line_view(),
+            line_view,
             sizing_mode="fixed",
             height=600,
         )
         probe_column = pn.Column(
             probe_selector,
-            self.ephys_plots.probe_view(),
+            probe_view,
             sizing_mode="fixed",
             height=600,
         )
         hist_column = pn.Column(
             hist_selector,
-            self.histology_panel.histology_view(),
+            hist_view,
             sizing_mode="fixed",
             height=600,
         )
@@ -401,12 +428,9 @@ class MainLayout(param.Parameterized):
         pn.Column
             Column containing linked depth plots and controls.
         """
-        # Create reactive binding for the linked plots
-        plot_view = pn.bind(
-            lambda _, __: self._create_linked_depth_plots(),
-            self.ephys_plots.param.refresh,
-            self.histology_panel.param.refresh,
-        )
+        # Create the linked depth plots - each view is wrapped in pn.bind
+        # to be reactive to its specific parameters only.
+        plot_view = self._create_linked_depth_plots()
 
         # Reference lines controls below the plots
         ref_lines_view = self.reference_lines.controls()
@@ -446,7 +470,7 @@ class MainLayout(param.Parameterized):
         """
         slice_view = pn.bind(
             lambda _: self.slice_viewer.view(),
-            self.slice_viewer.param.refresh,
+            self.slice_viewer.param._refresh_counter,
         )
 
         return pn.Column(

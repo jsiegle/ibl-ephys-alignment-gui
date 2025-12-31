@@ -28,8 +28,8 @@ class SliceViewer(param.Parameterized):
         Shared application state.
     """
 
-    # Trigger manual refresh
-    refresh = param.Event(doc="Trigger plot refresh")
+    # Internal counter to force refresh when needed
+    _refresh_counter = param.Integer(default=0, precedence=-1)
 
     def __init__(self, state: AppState, **params):
         super().__init__(**params)
@@ -42,15 +42,15 @@ class SliceViewer(param.Parameterized):
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
         if event.new:
-            self.param.trigger("refresh")
+            self._refresh_counter += 1
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle slice plot type change."""
-        self.param.trigger("refresh")
+        self._refresh_counter += 1
 
     def _on_channels_toggled(self, event) -> None:
         """Handle channel visibility toggle."""
-        self.param.trigger("refresh")
+        self._refresh_counter += 1
 
     def _get_slice_image(self) -> np.ndarray | None:
         """Get slice image data for the selected plot type.
@@ -90,6 +90,8 @@ class SliceViewer(param.Parameterized):
         if img is None or slice_data is None:
             img = self._create_placeholder_image()
             slice_data = {"scale": [1, 1], "offset": [0, 0]}
+        else:
+            img = img.transpose((1, 0))
         
         fig = go.Figure()
         
@@ -130,7 +132,7 @@ class SliceViewer(param.Parameterized):
             margin=dict(l=0, r=0, t=0, b=0),
             xaxis=dict(fixedrange=False),
             yaxis=dict(fixedrange=False),
-            dragmode="pan",
+            
         )
         
         return fig
@@ -178,7 +180,7 @@ class SliceViewer(param.Parameterized):
         selector.link(self.state, value="slice_plot_type")
         return selector
 
-    @param.depends("refresh")
+    @param.depends("_refresh_counter")
     def view(self) -> pn.pane.Plotly:
         """Return the Plotly slice viewer figure.
 

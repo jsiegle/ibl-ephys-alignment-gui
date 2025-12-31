@@ -123,13 +123,10 @@ class AlignmentApp(param.Parameterized):
 
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event from DataSelectionPanel."""
-        logger.info("Data load completed, refreshing plots")
-        # Trigger refresh on all components via the main layout
-        self.main_layout.ephys_plots.param.trigger("refresh")
-        self.main_layout.histology_panel.param.trigger("refresh")
-        self.main_layout.slice_viewer.param.trigger("refresh")
-        self.main_layout.alignment_controls.param.trigger("refresh")
-        self.main_layout.reference_lines.param.trigger("refresh")
+        logger.info("Data load completed - components will refresh reactively via state changes")
+        # Components are reactive via @param.depends on state parameters
+        # They will automatically update when state.data_loaded changes
+        # No manual refresh needed
 
     def _create_sidebar(self) -> pn.Column:
         """Create the sidebar with controls."""

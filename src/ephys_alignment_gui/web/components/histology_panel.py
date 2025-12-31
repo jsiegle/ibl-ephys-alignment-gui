@@ -52,15 +52,15 @@ class HistologyPanel(param.Parameterized):
         double-click on plot will add reference lines (at track position).
     """
 
-    # Trigger manual refresh
-    refresh = param.Event(doc="Trigger plot refresh")
-
     # Plot type selection
     plot_type = param.Selector(
         default="aligned",
         objects=["aligned", "reference"],
         doc="Histology view type",
     )
+    
+    # Internal counter to force refresh when needed
+    _refresh_counter = param.Integer(default=0, precedence=-1)
 
     def __init__(
         self,
@@ -72,6 +72,8 @@ class HistologyPanel(param.Parameterized):
         self.state = state
         self._reference_lines = reference_lines
 
+        logger.debug("Initializing HistologyPanel")
+
         # Cache placeholder histology data
         self._placeholder_hist_data: dict | None = None
         
@@ -79,8 +81,8 @@ class HistologyPanel(param.Parameterized):
         self._last_click_time: float = 0
         self._last_click_y: float | None = None
 
-        # Watch state changes
-        state.param.watch(self._on_data_loaded, "data_loaded")
+        # Watch plot type changes only - data loading is handled by MainLayout
+        # to avoid duplicate refresh triggers
         self.param.watch(self._on_plot_type_changed, "plot_type")
 
         # Watch reference lines changes if provided
@@ -91,16 +93,11 @@ class HistologyPanel(param.Parameterized):
 
     def _on_reference_lines_changed(self, event) -> None:
         """Handle reference lines change."""
-        self.param.trigger("refresh")
+        self._refresh_counter += 1
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle plot type change."""
-        self.param.trigger("refresh")
-
-    def _on_data_loaded(self, event) -> None:
-        """Handle data loaded event."""
-        if event.new:
-            self.param.trigger("refresh")
+        self._refresh_counter += 1
 
     def _render_histology_to_image(self, hist_data: dict, y_range: tuple) -> np.ndarray:
         """Render histology regions as RGB numpy array.
@@ -127,14 +124,14 @@ class HistologyPanel(param.Parameterized):
         regions = hist_data.get("region", [])
         colours = hist_data.get("colour", [])
         
-        logger.debug(f"Rendering {len(regions)} histology regions, y_range={y_range}")
+        #logger.debug(f"Rendering {len(regions)} histology regions, y_range={y_range}")
         
         for i, (region, colour) in enumerate(zip(regions, colours)):
             if len(region) < 2:
                 continue
             y_min, y_max = region[0], region[1]
 
-            logger.debug(f"Region {i}: y=({y_min:.1f},{y_max:.1f}) colour={colour}")
+            #logger.debug(f"Region {i}: y=({y_min:.1f},{y_max:.1f}) colour={colour}")
             
             # Convert y positions to pixel indices
             idx_min = int((y_min - y_range[0]) / (y_range[1] - y_range[0]) * n_pixels)
@@ -142,7 +139,7 @@ class HistologyPanel(param.Parameterized):
             idx_min = max(0, min(n_pixels - 1, idx_min))
             idx_max = max(0, min(n_pixels, idx_max))
 
-            logger.debug(f"Region {i} pixel indices: ({idx_min}, {idx_max})")
+            #logger.debug(f"Region {i} pixel indices: ({idx_min}, {idx_max})")
             
             if isinstance(colour, (list, tuple)) and len(colour) >= 3:
                 img[idx_min:idx_max, :, 0] = int(colour[0])
@@ -251,13 +248,12 @@ class HistologyPanel(param.Parameterized):
         y_range = self._get_y_range()
         
         # Use placeholder data if no real data
-        using_placeholder = False
-        if hist_data is None or not hist_data.get("region"):
+        regions = hist_data.get("region") if hist_data else None
+        if hist_data is None or regions is None or len(regions) == 0:
             hist_data = self._get_placeholder_hist_data()
-            using_placeholder = True
             logger.info(f"Using placeholder histology data (real data not available)")
         else:
-            logger.info(f"Using real histology data with {len(hist_data.get('region', []))} regions")
+            logger.info(f"Using real histology data with {len(regions)} regions")
         
         # Render histology as RGB image
         img = self._render_histology_to_image(hist_data, y_range)
@@ -296,11 +292,7 @@ class HistologyPanel(param.Parameterized):
         # Actually, let's just use Plotly's ability to display images with coordinates
         # by creating a list of colored rectangles
         
-        # Simplest working solution: Add image as shapes (colored rectangles)
-        hist_data = self.state.hist_data
-        if hist_data is None or not hist_data.get("region"):
-            hist_data = self._get_placeholder_hist_data()
-        
+        # Get regions and colours from hist_data (already validated above)
         regions = hist_data.get("region", [])
         colours = hist_data.get("colour", [])
 
@@ -467,8 +459,11 @@ class HistologyPanel(param.Parameterized):
                 y_min = relayout_data.get("yaxis.range[0]")
                 y_max = relayout_data.get("yaxis.range[1]")
                 if y_min is not None and y_max is not None:
-                    self.state.depth_y_range = (y_min, y_max)
-                    logger.debug(f"Histology updated Y-range to ({y_min:.1f}, {y_max:.1f})")
+                    # Only update if range actually changed (avoid infinite loop)
+                    current_range = self.state.depth_y_range
+                    if current_range != (y_min, y_max):
+                        self.state.depth_y_range = (y_min, y_max)
+                        logger.debug(f"Histology updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
     def controls(self) -> pn.widgets.Select:
         """Return histology type selector in fixed-width container.
@@ -485,7 +480,7 @@ class HistologyPanel(param.Parameterized):
         # Wrap in Column with fixed width matching plot width
         return selector
 
-    @param.depends("refresh")
+    @param.depends("_refresh_counter", "plot_type")
     def histology_view(self) -> pn.pane.Plotly:
         """Return the Plotly histology figure.
 
@@ -494,6 +489,7 @@ class HistologyPanel(param.Parameterized):
         pn.pane.Plotly
             Plotly pane containing the histology visualization.
         """
+        logger.info(f"Creating histology figure (refresh_counter={self._refresh_counter}, plot_type={self.plot_type})")
         fig = self._create_figure()
         
         pane = pn.pane.Plotly(

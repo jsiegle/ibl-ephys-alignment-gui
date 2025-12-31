@@ -84,8 +84,8 @@ class EphysPlots(param.Parameterized):
         Reference lines manager for alignment workflow.
     """
 
-    # Trigger manual refresh
-    refresh = param.Event(doc="Trigger plot refresh")
+    # Internal counter to force refresh when needed
+    _refresh_counter = param.Integer(default=0, precedence=-1)
 
     # Individual plot type selections
     image_plot_type = param.Selector(
@@ -112,7 +112,6 @@ class EphysPlots(param.Parameterized):
     ):
         super().__init__(**params)
         self.state = state
-        self._plot_data: PlotData | None = None
         self._reference_lines = reference_lines
 
         # Cache placeholder data (generated once)
@@ -141,37 +140,26 @@ class EphysPlots(param.Parameterized):
 
     def _on_reference_lines_changed(self, event) -> None:
         """Handle reference lines change."""
-        self.param.trigger("refresh")
+        self._refresh_counter += 1
 
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
-        if event.new and self.state.data is not None:
-            self._initialize_plot_data()
-            self.param.trigger("refresh")
+        if event.new:
+            logger.info("EphysPlots: data_loaded event received")
+            self._refresh_counter += 1
 
     def _on_y_range_changed(self, event) -> None:
         """Handle Y-range change from another plot (for synchronization)."""
-        self.param.trigger("refresh")
+        self._refresh_counter += 1
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle plot type change."""
-        self.param.trigger("refresh")
+        self._refresh_counter += 1
 
-    def _initialize_plot_data(self) -> None:
-        """Initialize PlotData instance from loaded data."""
-        if self.state.probe_path is None or self.state.data is None:
-            return
-
-        try:
-            self._plot_data = PlotData(
-                self.state.probe_path,
-                self.state.data,
-                self.state.current_shank,
-            )
-            self.state.plot_data = self._plot_data
-            logger.info("PlotData initialized")
-        except Exception as e:
-            logger.exception(f"Failed to initialize PlotData: {e}")
+    @property
+    def _plot_data(self) -> PlotData | None:
+        """Get PlotData from state (created during data loading)."""
+        return self.state.plot_data
 
     def _get_image_data(self, plot_type: str) -> dict | None:
         """Get 2D image/scatter plot data for the specified type."""
@@ -495,7 +483,6 @@ class EphysPlots(param.Parameterized):
                 z=img.T,
                 x=x_coords,
                 y=y_coords,
-                colorscale=cmap,
                 zmin=levels[0],
                 zmax=levels[1],
                 hoverinfo='none',
@@ -529,7 +516,6 @@ class EphysPlots(param.Parameterized):
                 marker=dict(
                     size=3,
                     color=color_values,
-                    colorscale=cmap,
                     cmin=levels[0],
                     cmax=levels[1],
                     showscale=True,
@@ -706,7 +692,7 @@ class EphysPlots(param.Parameterized):
                     self.state.depth_y_range = (y_min, y_max)
                     logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
-    @param.depends("refresh", "image_plot_type")
+    @param.depends("_refresh_counter", "image_plot_type")
     def image_view(self) -> pn.pane.Plotly:
         """Return the image plot pane.
 
@@ -751,7 +737,7 @@ class EphysPlots(param.Parameterized):
         
         return pane
 
-    @param.depends("refresh", "line_plot_type")
+    @param.depends("_refresh_counter", "line_plot_type")
     def line_view(self) -> pn.pane.Plotly:
         """Return the line plot pane.
 
@@ -796,7 +782,7 @@ class EphysPlots(param.Parameterized):
         
         return pane
 
-    @param.depends("refresh", "probe_plot_type")
+    @param.depends("_refresh_counter", "probe_plot_type")
     def probe_view(self) -> pn.pane.Plotly:
         """Return the probe plot pane.
 

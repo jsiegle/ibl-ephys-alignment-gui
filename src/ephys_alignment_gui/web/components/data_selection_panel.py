@@ -10,8 +10,12 @@ from pathlib import Path
 import panel as pn
 import param
 
+from ephys_alignment_gui.core.alignment import EphysAlignment
+from ephys_alignment_gui.visualization.plot_data import PlotData
+
 from ephys_alignment_gui.io.data_loader import LoadDataLocal
 from ephys_alignment_gui.web.state import AppState
+        
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +222,45 @@ class DataSelectionPanel(param.Parameterized):
             logger.info("Loading atlas and histology...")
             loaddata.load_atlas_and_histology()
 
+        # Initialize alignment and populate hist_data
+        logger.info("Initializing alignment...")
+        from ephys_alignment_gui.core.alignment import EphysAlignment
+        from ephys_alignment_gui.visualization.plot_data import PlotData
+        
+        # Get track annotations for the current shank
+        track_annotations_ras = loaddata.get_track_annotations(shank_idx)
+        
+        # Create alignment object
+        ephys_alignment = EphysAlignment(
+            track_annotations_ras,
+            chn_depths=chn_depths,
+            brain_atlas=loaddata.brain_atlas,
+            speedy=False,
+        )
+        
+        # Get initial histology scaling
+        hist_regions, hist_axis_labels = ephys_alignment.scale_histology_regions(
+            ephys_alignment.track_extent, ephys_alignment.track_extent
+        )
+        
+        # Store hist_data in state
+        self.state.hist_data = {
+            "region": hist_regions,
+            "axis_label": hist_axis_labels,
+            "colour": ephys_alignment.region_colour,
+        }
+        
+        # Store alignment and plot data objects in state
+        self.state.ephys_alignment = ephys_alignment
+        
+        # Load LFP correlation data if available
+        lfp_corr_data = loaddata.load_lfp_correlation_data(probe_path)
+        
+        # Create PlotData with correct arguments
+        self.state.plot_data = PlotData(
+            probe_path, data, shank_idx, lfp_correlation_data=lfp_corr_data
+        )
+        
         logger.info(f"Data loaded successfully from {probe_path}")
 
     def view(self) -> pn.Column:
