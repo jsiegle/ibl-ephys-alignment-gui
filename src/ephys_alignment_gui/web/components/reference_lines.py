@@ -1,30 +1,20 @@
-"""Reference lines component for the web frontend.
+"""Reference lines component for the web frontend (Plotly version).
 
 Manages draggable reference lines used for alignment between
 ephys features and histology boundaries.
 
-Supports double-click to add lines via HoloViews DoubleTap stream.
+This version uses Plotly's native editable shapes feature.
 """
 
 import logging
-from typing import TYPE_CHECKING, Callable
 
-import holoviews as hv
 import numpy as np
 import panel as pn
 import param
-from holoviews import opts, streams
-from holoviews.streams import DoubleTap, Tap
 
 from ephys_alignment_gui.web.state import AppState
 
-if TYPE_CHECKING:
-    pass
-
 logger = logging.getLogger(__name__)
-
-# Configure HoloViews
-hv.extension("bokeh")
 
 # Color palette for reference lines
 LINE_COLORS = [
@@ -36,60 +26,74 @@ LINE_COLORS = [
     "#ffff33",  # yellow
     "#a65628",  # brown
     "#f781bf",  # pink
-    "#999999",  # gray
-    "#000000",  # black
 ]
 
 
 class ReferenceLinesManager(param.Parameterized):
-    """Manages reference lines for alignment.
+    """Manages reference lines for Plotly-based alignment.
 
-    Provides functionality to add, remove, and move reference lines
-    that connect ephys features to histology boundaries.
+    Stores line positions and triggers events when they change.
+    Plotly figures add shapes directly using `add_shapes_to_figure()`.
+    
+    Each line has two Y positions:
+    - y_feature: Position across ephys plots (image, line, probe)
+    - y_track: Independent position on histology plot
 
     Parameters
     ----------
     state : AppState
         Shared application state.
+
+    Attributes
+    ----------
+    lines_changed : param.Event
+        Triggered when lines are added, removed, or moved.
+    selected_index : int
+        Index of currently selected line.
+    lines : list of tuple
+        List of (y_feature, y_track) tuples.
     """
 
     # Events
     lines_changed = param.Event(doc="Reference lines changed")
 
+    # Selection state
+    selected_index = param.Integer(
+        default=0,
+        doc="Index of selected line",
+    )
+
+    # Line storage  
+    lines = param.List(default=[], doc="List of (y_feature, y_track) tuples")
+
     def __init__(self, state: AppState, **params):
         super().__init__(**params)
         self.state = state
 
-        # Internal line storage: list of (y_feature, y_track) tuples
-        self._lines: list[tuple[float, float]] = []
-
-        # Watch state changes
-        state.param.watch(self._on_lines_changed, "reference_lines")
-
-    def _on_lines_changed(self, event) -> None:
-        """Handle reference lines state change."""
-        self.param.trigger("lines_changed")
-
-    @property
-    def lines(self) -> list[tuple[float, float]]:
-        """Get current reference lines."""
-        return list(self._lines)
-
     @property
     def feature_positions(self) -> np.ndarray:
         """Get feature (ephys) positions of lines."""
-        if not self._lines:
+        if not self.lines:
             return np.array([])
-        return np.array([line[0] for line in self._lines])
+        return np.array([line[0] for line in self.lines])
 
     @property
     def track_positions(self) -> np.ndarray:
         """Get track (histology) positions of lines."""
-        if not self._lines:
+        if not self.lines:
             return np.array([])
-        return np.array([line[1] for line in self._lines])
+        return np.array([line[1] for line in self.lines])
 
-    def add_line(self, y_feature: float, y_track: float | None = None) -> int:
+    @property
+    def n_lines(self) -> int:
+        """Get the number of reference lines."""
+        return len(self.lines)
+
+    def add_line(
+        self,
+        y_feature: float,
+        y_track: float | None = None,
+    ) -> int:
         """Add a new reference line.
 
         Parameters
@@ -107,10 +111,10 @@ class ReferenceLinesManager(param.Parameterized):
         if y_track is None:
             y_track = y_feature
 
-        self._lines.append((y_feature, y_track))
-        self._update_state()
+        self.lines = self.lines + [(y_feature, y_track)]
+        self.param.trigger("lines_changed")
         logger.info(f"Added reference line at feature={y_feature}, track={y_track}")
-        return len(self._lines) - 1
+        return len(self.lines) - 1
 
     def remove_line(self, index: int) -> None:
         """Remove a reference line by index.
@@ -120,23 +124,51 @@ class ReferenceLinesManager(param.Parameterized):
         index : int
             Index of the line to remove.
         """
-        if 0 <= index < len(self._lines):
-            removed = self._lines.pop(index)
-            self._update_state()
+        if 0 <= index < len(self.lines):
+            removed = self.lines[index]
+            self.lines = [line for i, line in enumerate(self.lines) if i != index]
+            
+            # Update selection
+            if self.selected_index >= len(self.lines) and len(self.lines) > 0:
+                self.selected_index = len(self.lines) - 1
+            elif len(self.lines) == 0:
+                self.selected_index = 0
+                
+            self.param.trigger("lines_changed")
             logger.info(f"Removed reference line {index}: {removed}")
 
     def remove_last_line(self) -> None:
         """Remove the most recently added reference line."""
-        if self._lines:
-            self.remove_line(len(self._lines) - 1)
+        if self.lines:
+            self.remove_line(len(self.lines) - 1)
+
+    def remove_selected_line(self) -> None:
+        """Remove the currently selected reference line."""
+        if 0 <= self.selected_index < len(self.lines):
+            self.remove_line(self.selected_index)
 
     def clear_lines(self) -> None:
         """Remove all reference lines."""
-        self._lines.clear()
-        self._update_state()
+        self.lines = []
+        self.selected_index = 0
+        self.param.trigger("lines_changed")
         logger.info("Cleared all reference lines")
 
-    def update_line(
+    def select_next_line(self) -> None:
+        """Select the next reference line."""
+        if self.lines:
+            self.selected_index = (self.selected_index + 1) % len(self.lines)
+            self.param.trigger("lines_changed")
+            logger.debug(f"Selected line {self.selected_index}")
+
+    def select_prev_line(self) -> None:
+        """Select the previous reference line."""
+        if self.lines:
+            self.selected_index = (self.selected_index - 1) % len(self.lines)
+            self.param.trigger("lines_changed")
+            logger.debug(f"Selected line {self.selected_index}")
+
+    def update_line_position(
         self,
         index: int,
         y_feature: float | None = None,
@@ -153,19 +185,18 @@ class ReferenceLinesManager(param.Parameterized):
         y_track : float, optional
             New track position.
         """
-        if 0 <= index < len(self._lines):
-            old_feature, old_track = self._lines[index]
+        if 0 <= index < len(self.lines):
+            old_feature, old_track = self.lines[index]
             new_feature = y_feature if y_feature is not None else old_feature
             new_track = y_track if y_track is not None else old_track
-            self._lines[index] = (new_feature, new_track)
-            self._update_state()
-
-    def _update_state(self) -> None:
-        """Update state with current lines."""
-        self.state.reference_lines = [
-            {"feature": f, "track": t} for f, t in self._lines
-        ]
-        self.param.trigger("lines_changed")
+            
+            # Update the line
+            new_lines = list(self.lines)
+            new_lines[index] = (new_feature, new_track)
+            self.lines = new_lines
+            
+            self.param.trigger("lines_changed")
+            logger.debug(f"Updated line {index} to feature={new_feature:.1f}, track={new_track:.1f}")
 
     def get_line_color(self, index: int) -> str:
         """Get color for a line by index.
@@ -182,125 +213,86 @@ class ReferenceLinesManager(param.Parameterized):
         """
         return LINE_COLORS[index % len(LINE_COLORS)]
 
-    def create_feature_lines_overlay(self) -> hv.Overlay:
-        """Create HoloViews overlay of reference lines for feature plot.
-
-        Returns
-        -------
-        hv.Overlay
-            Overlay of horizontal lines at feature positions.
-        """
-        elements = []
-        for i, (y_feature, _) in enumerate(self._lines):
-            line = hv.HLine(y_feature).opts(
-                line_color=self.get_line_color(i),
-                line_dash="dashed",
-                line_width=2,
-            )
-            elements.append(line)
-        return hv.Overlay(elements) if elements else hv.Overlay([])
-
-    def create_track_lines_overlay(self) -> hv.Overlay:
-        """Create HoloViews overlay of reference lines for track plot.
-
-        Returns
-        -------
-        hv.Overlay
-            Overlay of horizontal lines at track positions.
-        """
-        elements = []
-        for i, (_, y_track) in enumerate(self._lines):
-            line = hv.HLine(y_track).opts(
-                line_color=self.get_line_color(i),
-                line_dash="dashed",
-                line_width=2,
-            )
-            elements.append(line)
-        return hv.Overlay(elements) if elements else hv.Overlay([])
-
-    def create_tap_stream(self, source: hv.Element = None) -> DoubleTap:
-        """Create a DoubleTap stream for adding lines on double-click.
-
-        Parameters
-        ----------
-        source : hv.Element, optional
-            HoloViews element to attach the stream to.
-
-        Returns
-        -------
-        DoubleTap
-            Stream that triggers on double-click.
-        """
-        stream = DoubleTap(source=source, x=None, y=None)
-        return stream
-
-    def handle_double_tap(self, x: float | None, y: float | None) -> None:
-        """Handle double-tap event to add a reference line.
-
-        Parameters
-        ----------
-        x : float or None
-            X coordinate of tap (ignored for horizontal lines).
-        y : float or None
-            Y coordinate of tap - becomes the line position.
-        """
-        if y is not None:
-            self.add_line(y)
-            logger.info(f"Added reference line at y={y:.1f} via double-tap")
-
-    def create_interactive_overlay(
-        self,
-        base_plot: hv.Element,
-        on_feature_plot: bool = True,
-    ) -> hv.DynamicMap:
-        """Create a DynamicMap that shows lines and responds to double-clicks.
-
-        Parameters
-        ----------
-        base_plot : hv.Element
-            The base plot to overlay lines on.
-        on_feature_plot : bool
-            If True, use feature positions; if False, use track positions.
-
-        Returns
-        -------
-        hv.DynamicMap
-            Interactive plot with reference lines overlay.
-        """
-        # Create double-tap stream attached to base plot
-        tap_stream = self.create_tap_stream(source=base_plot)
-
-        def update_and_overlay(x, y):
-            # Handle new tap if coordinates provided
-            if y is not None:
-                self.handle_double_tap(x, y)
-
-            # Return current lines overlay
-            if on_feature_plot:
-                return self.create_feature_lines_overlay()
-            else:
-                return self.create_track_lines_overlay()
-
-        # Create DynamicMap that updates on tap
-        lines_dmap = hv.DynamicMap(update_and_overlay, streams=[tap_stream])
-
-        return base_plot * lines_dmap
-
     def view(self) -> pn.Column:
-        """Return a Panel view showing line information.
+        """Return a Panel view showing line information and controls.
 
         Returns
         -------
         pn.Column
-            Panel column with line count and list.
+            Panel column with line list and controls.
         """
-        if not self._lines:
-            return pn.pane.Markdown("*No reference lines*\n\n*Double-click on plot to add*")
+        components = []
 
-        lines_text = f"**{len(self._lines)} reference line(s)**\n\n"
-        for i, (feat, track) in enumerate(self._lines):
-            color = self.get_line_color(i)
-            lines_text += f"- Line {i+1}: feature={feat:.0f}μm, track={track:.0f}μm\n"
-        lines_text += "\n*Double-click on plot to add more*"
+        # Add Line button
+        def on_add_line(event):
+            midpoint = (self.state.probe_tip + self.state.probe_top) / 2
+            self.add_line(midpoint)
 
-        return pn.pane.Markdown(lines_text)
+        add_btn = pn.widgets.Button(
+            name="+ Add Line",
+            button_type="success",
+            width=200,
+            margin=(2, 5),
+        )
+        add_btn.on_click(on_add_line)
+        components.append(add_btn)
+
+        if not self.lines:
+            components.append(
+                pn.pane.Markdown(
+                    "*No reference lines yet*",
+                    styles={"color": "#666", "font-style": "italic"},
+                )
+            )
+        else:
+            # Header
+            components.append(
+                pn.pane.Markdown(f"**{len(self.lines)} reference line(s)**")
+            )
+
+            # Create a button for each line
+            for i, (feat, track) in enumerate(self.lines):
+                is_selected = i == self.selected_index
+                button_type = "primary" if is_selected else "default"
+                button_text = f"Line {i+1}: {feat:.0f}μm → {track:.0f}μm"
+                if is_selected:
+                    button_text = f"● {button_text}"
+
+                btn = pn.widgets.Button(
+                    name=button_text,
+                    button_type=button_type,
+                    width=200,
+                    margin=(2, 5),
+                )
+
+                def make_select_callback(idx: int):
+                    def callback(event):
+                        self.selected_index = idx
+                        self.param.trigger("lines_changed")
+                    return callback
+
+                btn.on_click(make_select_callback(i))
+                components.append(btn)
+
+            # Delete button for selected line
+            if 0 <= self.selected_index < len(self.lines):
+                delete_btn = pn.widgets.Button(
+                    name="Delete Selected",
+                    button_type="danger",
+                    width=200,
+                    margin=(10, 5, 2, 5),
+                )
+                delete_btn.on_click(lambda event: self.remove_selected_line())
+                components.append(delete_btn)
+
+        return pn.Column(*components, sizing_mode="stretch_width")
+
+    def controls(self) -> pn.Column:
+        """Return a reactive Panel view that updates when lines change.
+
+        Returns
+        -------
+        pn.Column
+            Reactive Panel column.
+        """
+        return pn.bind(lambda _: self.view(), self.param.lines_changed)

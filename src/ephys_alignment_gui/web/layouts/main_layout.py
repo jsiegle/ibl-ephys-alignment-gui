@@ -6,11 +6,9 @@ mirrors the desktop application structure.
 
 import logging
 
-import holoviews as hv
 import numpy as np
 import panel as pn
 import param
-from holoviews import opts
 
 from ephys_alignment_gui.core.alignment import EphysAlignment
 from ephys_alignment_gui.web.components.alignment_controls import AlignmentControls
@@ -24,9 +22,6 @@ logger = logging.getLogger(__name__)
 
 # Maximum number of alignment moves to track in history
 MAX_ALIGNMENT_HISTORY = 10
-
-# Don't show toolbar in Holoviews plots
-opts.defaults(toolbar=None)
 
 class MainLayout(param.Parameterized):
     """Main layout manager for the alignment GUI.
@@ -58,12 +53,16 @@ class MainLayout(param.Parameterized):
         super().__init__(**params)
         self.state = state
 
-        # Initialize components
-        self.ephys_plots = EphysPlots(state)
-        self.histology_panel = HistologyPanel(state)
+        # Initialize reference lines manager first (shared by plots)
+        self.reference_lines = ReferenceLinesManager(state)
+
+        # Initialize visualization components with reference lines support
+        self.ephys_plots = EphysPlots(state, reference_lines=self.reference_lines)
+        self.histology_panel = HistologyPanel(
+            state, reference_lines=self.reference_lines
+        )
         self.slice_viewer = SliceViewer(state)
         self.alignment_controls = AlignmentControls(state)
-        self.reference_lines = ReferenceLinesManager(state)
 
         # Alignment state - arrays for tracking history
         self._track_history: list[np.ndarray] = []
@@ -339,43 +338,56 @@ class MainLayout(param.Parameterized):
         self.reference_lines.remove_last_line()
         self.param.trigger("refresh")
 
-    def _create_linked_depth_plots(self) -> pn.pane.HoloViews:
+    def _create_linked_depth_plots(self) -> pn.Column:
         """Create all depth plots with linked Y-axes.
 
         Combines ephys plots (image, line, probe) and histology into
-        a single HoloViews Layout with shared Y-axis.
+        separate columns with their controls. Plotly handles Y-axis 
+        linking via shared state.
 
         Returns
         -------
-        pn.pane.HoloViews
-            HoloViews pane with linked depth plots.
+        pn.Column
+            Column containing controls and plots.
         """
-        # Get individual plots
-        image_plot = self.ephys_plots._get_image_plot()
-        line_plot = self.ephys_plots._get_line_plot()
-        probe_plot = self.ephys_plots._get_probe_plot()
-        hist_plot = self.histology_panel.get_plot()
-
         # Get controls
         image_selector = self.ephys_plots.controls(selector='image')
         line_selector = self.ephys_plots.controls(selector='line')
         probe_selector = self.ephys_plots.controls(selector='probe')
         hist_selector = self.histology_panel.controls()
 
-        # Arrange plots with their selectors
-        image_column = pn.Column(image_selector, image_plot, sizing_mode="stretch_both")
-        line_column = pn.Column(line_selector, line_plot, sizing_mode="stretch_both")
-        probe_column = pn.Column(probe_selector, probe_plot, sizing_mode="stretch_both")
-        hist_column = pn.Column(hist_selector, hist_plot, sizing_mode="stretch_both")
-
-        # Create a row of plots
-        layout = pn.Row(
-            image_column, line_column, probe_column, hist_column,
-            sizing_mode="fixed",
-            margin=0,
-            styles={"gap": "0px"}  # works on newer Panel versions
+        # Create columns with controls above each plot
+        image_column = pn.Column(
+            image_selector,
+            self.ephys_plots.view_image(),
+            sizing_mode="stretch_both",
         )
-        return layout
+        line_column = pn.Column(
+            line_selector,
+            self.ephys_plots.view_line(),
+            sizing_mode="stretch_both",
+        )
+        probe_column = pn.Column(
+            probe_selector,
+            self.ephys_plots.view_probe(),
+            sizing_mode="stretch_both",
+        )
+        hist_column = pn.Column(
+            hist_selector,
+            self.histology_panel.view(),
+            sizing_mode="stretch_both",
+        )
+
+        # Create plots row
+        plots_row = pn.Row(
+            image_column,
+            line_column,
+            probe_column,
+            hist_column,
+            sizing_mode="stretch_both",
+        )
+
+        return plots_row
 
     def _create_ephys_area(self) -> pn.Column:
         """Create the ephys and histology visualization area with linked axes.
@@ -392,7 +404,19 @@ class MainLayout(param.Parameterized):
             self.histology_panel.param.refresh,
         )
 
-        return plot_view
+        # Reference lines controls below the plots
+        ref_lines_view = self.reference_lines.controls()
+        ref_lines_section = pn.Row(
+            pn.pane.Markdown("**Reference Lines:**", margin=(5, 10, 0, 0)),
+            ref_lines_view,
+            sizing_mode="stretch_width",
+        )
+
+        return pn.Column(
+            plot_view,
+            ref_lines_section,
+            sizing_mode="stretch_both",
+        )
 
     def _create_control_area(self) -> pn.Column:
         """Create the controls area.
@@ -405,7 +429,7 @@ class MainLayout(param.Parameterized):
         return pn.Column(
             self.alignment_controls.view(),
             sizing_mode="stretch_width",
-            min_height=350,
+            min_height=200,
         )
     
     def _create_slice_viewer_area(self) -> pn.Column:

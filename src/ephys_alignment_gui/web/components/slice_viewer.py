@@ -1,23 +1,19 @@
 """Slice viewer component for the web frontend.
 
 Displays coronal brain slice images (CCF template, annotations, histology)
-with probe trajectory overlay and channel markers.
+using Plotly.
 """
 
 import logging
 
-import holoviews as hv
 import numpy as np
 import panel as pn
 import param
-from holoviews import opts
+import plotly.graph_objects as go
 
 from ephys_alignment_gui.web.state import AppState
 
 logger = logging.getLogger(__name__)
-
-# Configure HoloViews
-hv.extension("bokeh")
 
 
 class SliceViewer(param.Parameterized):
@@ -80,61 +76,72 @@ class SliceViewer(param.Parameterized):
             logger.exception(f"Error getting slice data: {e}")
             return None
 
-    def _create_slice_image(self, img: np.ndarray, slice_data: dict) -> hv.RGB | hv.Image:
-        """Create a HoloViews image from slice data.
-
-        Parameters
-        ----------
-        img : np.ndarray
-            Slice image array (2D grayscale or 3D RGB).
-        slice_data : dict
-            Slice data with scale and offset information.
-
+    def _create_figure(self) -> go.Figure:
+        """Create Plotly figure for brain slice viewer.
+        
         Returns
         -------
-        hv.RGB or hv.Image
-            HoloViews image element.
+        go.Figure
+            Plotly figure with brain slice image.
         """
+        slice_data = self.state.slice_data
+        img = self._get_slice_image()
+        
+        if img is None or slice_data is None:
+            img = self._create_placeholder_image()
+            slice_data = {"scale": [1, 1], "offset": [0, 0]}
+        
+        fig = go.Figure()
+        
         scale = slice_data.get("scale", [1, 1])
         offset = slice_data.get("offset", [0, 0])
-
-        # Calculate bounds
-        if img.ndim == 3:
-            # RGB image
-            h, w = img.shape[:2]
-        else:
-            h, w = img.shape
-
-        bounds = (
-            offset[0],
-            offset[1],
-            offset[0] + w * scale[0],
-            offset[1] + h * scale[1],
-        )
-
+        
         if img.ndim == 3 and img.shape[2] >= 3:
-            # RGB image - use unique dimension names to avoid axis linking
-            return hv.RGB(img, bounds=bounds, kdims=["ml", "dv"])
+            # RGB image
+            fig.add_trace(
+                go.Image(
+                    z=img,
+                    x0=offset[0],
+                    dx=scale[0],
+                    y0=offset[1],
+                    dy=scale[1],
+                )
+            )
         else:
-            # Grayscale image - use unique dimension names to avoid axis linking
-            return hv.Image(img, bounds=bounds, kdims=["ml", "dv"])
+            # Grayscale image
+            fig.add_trace(
+                go.Heatmap(
+                    z=img,
+                    x0=offset[0],
+                    dx=scale[0],
+                    y0=offset[1],
+                    dy=scale[1],
+                    colorscale="gray",
+                    showscale=False,
+                )
+            )
+        
+        fig.update_xaxes(visible=False, scaleanchor="y", scaleratio=1)
+        fig.update_yaxes(visible=False, autorange="reversed")  # Image coordinates
+        
+        fig.update_layout(
+            width=250,
+            height=250,
+            margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(fixedrange=True),
+            yaxis=dict(fixedrange=True),
+        )
+        
+        return fig
 
-    def _create_channel_overlay(self) -> hv.Points | None:
-        """Create channel marker overlay.
-
+    def _create_placeholder_image(self) -> np.ndarray:
+        """Create a placeholder brain slice image.
+        
         Returns
         -------
-        hv.Points or None
-            Points element for channel markers or None.
+        np.ndarray
+            Grayscale placeholder image suggesting brain shape.
         """
-
-        # Channel locations would come from the alignment data
-        # For now, return empty overlay
-        # In full implementation, this would use ephys_alignment.channel_locations
-        return None
-
-    def _create_placeholder_slice(self):
-        """Create a placeholder brain slice image."""
         # Create a simple ellipse pattern to suggest brain shape
         size = 100
         y, x = np.ogrid[-size:size, -size:size]
@@ -146,23 +153,8 @@ class SliceViewer(param.Parameterized):
         # Add some internal structure suggestion
         inner_mask = (x * x) / (size * 0.3) ** 2 + (y * y) / (size * 0.4) ** 2 <= 1
         img[inner_mask] = 0.5
-
-        return hv.Image(
-            img,
-            bounds=(-5000, -8000, 5000, 0),
-            kdims=["ml", "dv"],  # Unique dimension names to avoid axis linking
-        ).opts(
-            opts.Image(
-                cmap="gray",
-                clim=(0, 1),
-                width=250,
-                height=250,
-                xaxis=None,
-                yaxis=None,
-                toolbar=None,
-                alpha=0.5,
-            )
-        )
+        
+        return img
 
     def controls(self) -> pn.widgets.Select:
         """Return slice type selector widget."""
@@ -186,52 +178,37 @@ class SliceViewer(param.Parameterized):
         return selector
 
     @param.depends("refresh")
-    def view(self) -> pn.Column:
-        """Return the Panel layout for this component.
+    def view(self) -> pn.pane.Plotly:
+        """Return the Plotly slice viewer figure.
 
         Returns
         -------
-        pn.Column
-            Panel column containing the slice visualization.
+        pn.pane.Plotly
+            Plotly pane containing the slice visualization.
         """
-        slice_data = self.state.slice_data
-        img = self._get_slice_image()
-
-        if img is None or slice_data is None:
-            # Show placeholder
-            plot = self._create_placeholder_slice()
-            return pn.Column(
-                pn.pane.HoloViews(plot, sizing_mode="stretch_both"),
-                sizing_mode="stretch_both",
-            )
-
         try:
-            slice_img = self._create_slice_image(img, slice_data)
-
-            # Configure plot options
-            plot_opts = opts.RGB if img.ndim == 3 else opts.Image
-            plot = slice_img.opts(
-                plot_opts(
-                    width=250,
-                    height=250,
-                    xaxis=None,
-                    yaxis=None,
-                    toolbar=None,
-                )
-            )
-
-            # Add channel overlay if available
-            channels = self._create_channel_overlay()
-            if channels is not None:
-                plot = plot * channels
-
-            return pn.Column(
-                pn.pane.HoloViews(plot, sizing_mode="stretch_both"),
+            fig = self._create_figure()
+            
+            return pn.pane.Plotly(
+                fig,
                 sizing_mode="stretch_both",
+                config={
+                    "scrollZoom": False,
+                    "displayModeBar": False,
+                    "displaylogo": False,
+                },
             )
         except Exception as e:
             logger.exception(f"Error creating slice view: {e}")
-            return pn.Column(
-                pn.pane.Markdown(f"*Error: {e}*"),
-                sizing_mode="stretch_both",
+            # Return placeholder figure on error
+            fig = go.Figure()
+            fig.add_annotation(
+                text=f"Error: {e}",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+                showarrow=False,
             )
+            fig.update_layout(width=250, height=250)
+            return pn.pane.Plotly(fig, sizing_mode="stretch_both")

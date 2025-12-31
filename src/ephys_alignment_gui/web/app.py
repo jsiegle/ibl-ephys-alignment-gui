@@ -32,7 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configure Panel
-pn.extension("tabulator", sizing_mode="stretch_width")
+pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
 
 # Keyboard shortcut JavaScript
 KEYBOARD_SHORTCUTS_JS = """

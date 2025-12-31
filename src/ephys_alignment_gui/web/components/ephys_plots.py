@@ -1,27 +1,27 @@
-"""Electrophysiology plot components for the web frontend.
+"""Electrophysiology plot components using Plotly for the web frontend.
 
-Converts PlotData output to HoloViews elements for display in Panel.
-Displays three sub-plots side by side: 2D image, line plot, and probe plot.
+Converts PlotData output to Plotly figures for display in Panel.
+Displays three sub-plots in a single linked figure: 2D image, line plot, and probe plot.
+
+Supports draggable reference lines for alignment workflow.
 """
 
 import logging
+from typing import TYPE_CHECKING
 
-import holoviews as hv
 import numpy as np
 import panel as pn
 import param
-from holoviews import opts
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from ephys_alignment_gui.visualization.plot_data import PlotData
 from ephys_alignment_gui.web.state import AppState
 
+if TYPE_CHECKING:
+    from ephys_alignment_gui.web.components.reference_lines import ReferenceLinesManager
+
 logger = logging.getLogger(__name__)
-
-# Configure HoloViews
-hv.extension("bokeh")
-
-# Don't show toolbar in Holoviews plots
-opts.defaults(toolbar=None)
 
 # Plot type options for each sub-plot
 IMAGE_PLOT_OPTIONS = {
@@ -51,9 +51,21 @@ PROBE_PLOT_OPTIONS = {
     "LFP 80-200 Hz": "lfp_80_200",
 }
 
+# Line colors for reference lines
+LINE_COLORS = [
+    "#e41a1c",  # red
+    "#377eb8",  # blue
+    "#4daf4a",  # green
+    "#984ea3",  # purple
+    "#ff7f00",  # orange
+    "#ffff33",  # yellow
+    "#a65628",  # brown
+    "#f781bf",  # pink
+]
+
 
 class EphysPlots(param.Parameterized):
-    """Component for displaying electrophysiology data plots.
+    """Component for displaying electrophysiology data plots using Plotly.
 
     Renders three sub-plots side by side:
     - 2D image plot (firing rate, RMS, correlation, etc.)
@@ -62,10 +74,14 @@ class EphysPlots(param.Parameterized):
 
     Each sub-plot has its own Plot Type selector.
 
+    Supports draggable reference lines for alignment workflow.
+
     Parameters
     ----------
     state : AppState
         Shared application state.
+    reference_lines : ReferenceLinesManager, optional
+        Reference lines manager for alignment workflow.
     """
 
     # Trigger manual refresh
@@ -88,24 +104,54 @@ class EphysPlots(param.Parameterized):
         doc="Type of probe plot to display",
     )
 
-    def __init__(self, state: AppState, **params):
+    def __init__(
+        self,
+        state: AppState,
+        reference_lines: "ReferenceLinesManager | None" = None,
+        **params,
+    ):
         super().__init__(**params)
         self.state = state
         self._plot_data: PlotData | None = None
+        self._reference_lines = reference_lines
+
+        # Cache placeholder data (generated once)
+        self._placeholder_image_data: dict | None = None
+        self._placeholder_line_data: dict | None = None
+        self._placeholder_probe_data: dict | None = None
+        
+        # Track last click time for double-click detection
+        self._last_click_time: float = 0
+        self._last_click_y: float | None = None
 
         # Watch state changes
         state.param.watch(self._on_data_loaded, "data_loaded")
+        state.param.watch(self._on_y_range_changed, "depth_y_range")
 
         # Watch local plot type changes
         self.param.watch(self._on_plot_type_changed, "image_plot_type")
         self.param.watch(self._on_plot_type_changed, "line_plot_type")
         self.param.watch(self._on_plot_type_changed, "probe_plot_type")
 
+        # Watch reference lines changes if provided
+        if reference_lines is not None:
+            reference_lines.param.watch(
+                self._on_reference_lines_changed, "lines_changed"
+            )
+
+    def _on_reference_lines_changed(self, event) -> None:
+        """Handle reference lines change."""
+        self.param.trigger("refresh")
+
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
         if event.new and self.state.data is not None:
             self._initialize_plot_data()
             self.param.trigger("refresh")
+
+    def _on_y_range_changed(self, event) -> None:
+        """Handle Y-range change from another plot (for synchronization)."""
+        self.param.trigger("refresh")
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle plot type change."""
@@ -193,7 +239,6 @@ class EphysPlots(param.Parameterized):
                 _, data = self._plot_data.get_rms_data_img_probe("LF")
                 return data
             elif plot_type.startswith("lfp_"):
-                # Parse frequency band from plot_type like "lfp_0_4"
                 _, data_dict = self._plot_data.get_lfp_spectrum_data("lf")
                 band_map = {
                     "lfp_0_4": "0 - 4 Hz",
@@ -213,83 +258,215 @@ class EphysPlots(param.Parameterized):
             logger.exception(f"Error getting probe data for {plot_type}: {e}")
             return None
 
-    def _create_image_plot(self, data: dict, width: int = 350, frame_height: int = 450) -> hv.Image:
-        """Create a HoloViews Image from plot data dict."""
+    def _get_placeholder_image_data(self) -> dict:
+        """Get cached placeholder image data when no real data is loaded."""
+        if self._placeholder_image_data is None:
+            # Use fixed range for placeholder (full probe depth)
+            y_min, y_max = -100, 3940
+            # Create a gradient pattern
+            n_y = 200
+            n_x = 50
+            y = np.linspace(y_min, y_max, n_y)
+            x = np.linspace(0, 100, n_x)
+            
+            # Create interesting pattern (sine wave gradient)
+            xx, yy = np.meshgrid(x, y)
+            img = np.sin(yy / 500) * 0.5 + np.sin(xx / 10) * 0.3 + 0.5
+            
+            self._placeholder_image_data = {
+                "img": img.T,
+                "scale": [x[1] - x[0], (y_max - y_min) / n_y],
+                "offset": [0, y_min],
+                "levels": (0, 1),
+                "cmap": "Viridis",
+            }
+        return self._placeholder_image_data
+
+    def _get_placeholder_line_data(self) -> dict:
+        """Get cached placeholder line data when no real data is loaded."""
+        if self._placeholder_line_data is None:
+            # Use fixed range for placeholder (full probe depth)
+            y_min, y_max = -100, 3940
+            y = np.linspace(y_min, y_max, 100)
+            # Random walk
+            np.random.seed(42)
+            x = np.cumsum(np.random.randn(100) * 0.5) + 50
+            
+            self._placeholder_line_data = {"x": x, "y": y}
+        return self._placeholder_line_data
+
+    def _get_placeholder_probe_data(self) -> dict:
+        """Get cached placeholder probe data when no real data is loaded."""
+        if self._placeholder_probe_data is None:
+            # Use fixed range for placeholder (full probe depth)
+            y_min, y_max = -100, 3940
+            n_y = 200
+            y = np.linspace(y_min, y_max, n_y)
+            
+            # Create a simple vertical gradient (single bank)
+            img = np.linspace(0, 1, n_y).reshape(-1, 1)
+            
+            self._placeholder_probe_data = {
+                "img": [img],
+                "scale": np.array([[10, (y_max - y_min) / n_y]]),
+                "offset": np.array([[0, y_min]]),
+                "levels": (0, 1),
+                "cmap": "Viridis",
+            }
+        return self._placeholder_probe_data
+
+    def _create_image_figure(self) -> go.Figure:
+        """Create the image plot figure."""
+        fig = go.Figure()
+        y_range = self.state.depth_y_range
+        image_data = self._get_image_data(self.image_plot_type)
+
+        # Use placeholder data if no real data
+        if image_data is None:
+            image_data = self._get_placeholder_image_data()
+
+        # Add image or scatter trace
+        if image_data and "img" in image_data:
+            self._add_image_trace(fig, image_data)
+        elif image_data and "x" in image_data and "y" in image_data:
+            self._add_scatter_trace(fig, image_data)
+
+        # Add reference lines
+        if self._reference_lines is not None:
+            self._add_reference_lines_to_figure(fig)
+
+        # Update layout
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            title_text="Depth (μm)",
+            showgrid=True,
+            gridcolor="lightgray",
+            fixedrange=False,
+        )
+
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            margin=dict(l=50, r=10, t=10, b=10),
+            hovermode="closest",
+            dragmode="pan",
+            xaxis=dict(fixedrange=True),  # Lock X-axis
+            yaxis=dict(fixedrange=False),  # Allow Y-axis pan/zoom
+        )
+
+        return fig
+
+    def _create_line_figure(self) -> go.Figure:
+        """Create the line plot figure."""
+        fig = go.Figure()
+        y_range = self.state.depth_y_range
+        line_data = self._get_line_data(self.line_plot_type)
+
+        # Use placeholder data if no real data
+        if line_data is None:
+            line_data = self._get_placeholder_line_data()
+
+        # Add line trace
+        if line_data:
+            self._add_line_trace(fig, line_data)
+
+        # Add reference lines
+        if self._reference_lines is not None:
+            self._add_reference_lines_to_figure(fig)
+
+        # Update layout
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            showticklabels=False,
+            showgrid=False,
+            fixedrange=False,
+        )
+
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            margin=dict(l=0, r=0, t=10, b=10),
+            hovermode="closest",
+            dragmode="pan",
+            xaxis=dict(fixedrange=True),  # Lock X-axis
+            yaxis=dict(fixedrange=False),  # Allow Y-axis pan/zoom
+        )
+
+        return fig
+
+    def _create_probe_figure(self) -> go.Figure:
+        """Create the probe plot figure."""
+        fig = go.Figure()
+        y_range = self.state.depth_y_range
+        probe_data = self._get_probe_data(self.probe_plot_type)
+
+        # Use placeholder data if no real data
+        if probe_data is None:
+            probe_data = self._get_placeholder_probe_data()
+
+        # Add probe trace
+        if probe_data:
+            self._add_probe_trace(fig, probe_data)
+
+        # Add reference lines
+        if self._reference_lines is not None:
+            self._add_reference_lines_to_figure(fig)
+
+        # Update layout
+        fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            showticklabels=False,
+            showgrid=False,
+            fixedrange=False,
+        )
+
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            margin=dict(l=0, r=10, t=10, b=10),
+            hovermode="closest",
+            dragmode="pan",
+            xaxis=dict(fixedrange=True),  # Lock X-axis
+            yaxis=dict(fixedrange=False),  # Allow Y-axis pan/zoom
+        )
+
+        return fig
+
+    def _add_image_trace(self, fig: go.Figure, data: dict) -> None:
+        """Add heatmap trace to figure."""
         img = data["img"]
         scale = data["scale"]
         offset = data["offset"]
         levels = data["levels"]
-        y_range = self._get_y_range()
+        cmap = data.get("cmap", "Viridis")
 
-        # Calculate bounds: (left, bottom, right, top)
-        bounds = (
-            offset[0],
-            offset[1],
-            offset[0] + img.shape[0] * scale[0],
-            offset[1] + img.shape[1] * scale[1],
-        )
+        # Create coordinate arrays for the heatmap
+        x_coords = offset[0] + np.arange(img.shape[0]) * scale[0]
+        y_coords = offset[1] + np.arange(img.shape[1]) * scale[1]
 
-        image = hv.Image(
-            img.T,
-            bounds=bounds,
-            kdims=["x_img", "y"],
-        )
-
-        return image.opts(
-            opts.Image(
-                cmap=data.get("cmap", "viridis"),
-                clim=tuple(levels),
-                ylabel="Depth (μm)",
-                title="",
-                colorbar=True,
-                width=width,
-                frame_height=frame_height,
-                ylim=y_range,
-                xaxis=None,
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                margin=0,
+        fig.add_trace(
+            go.Heatmap(
+                z=img.T,
+                x=x_coords,
+                y=y_coords,
+                colorscale=cmap,
+                zmin=levels[0],
+                zmax=levels[1],
+                showscale=True,
+                colorbar=dict(thickness=10, len=0.7),
             )
         )
 
-    def _create_line_plot(self, data: dict, width: int = 150, frame_height: int = 450) -> hv.Path:
-        """Create a HoloViews Path (line plot) from plot data dict."""
-        x_vals = data["x"]
-        y_vals = data["y"]
-        y_range = self._get_y_range()
-
-        # Use unique x dim name so only y-axis is linked
-        path = hv.Path(
-            [np.column_stack([x_vals, y_vals])],
-            kdims=["x_line", "y"],
-        )
-
-        return path.opts(
-            opts.Path(
-                line_width=2,
-                color="#1f77b4",
-                ylabel="",
-                width=width,
-                frame_height=frame_height,
-                ylim=y_range,
-                yaxis=None,
-                xaxis=None,
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                margin=0,
-            )
-        )
-
-    def _create_scatter_plot(self, data: dict, width: int = 350, frame_height: int = 450) -> hv.Points:
-        """Create a HoloViews scatter plot from plot data dict."""
+    def _add_scatter_trace(self, fig: go.Figure, data: dict) -> None:
+        """Add scatter plot trace to figure."""
         x = data["x"]
         y = data["y"]
         colors = data.get("colours")
-        y_range = self._get_y_range()
+        levels = data.get("levels", (0, 1))
+        cmap = data.get("cmap", "Viridis")
 
         # Handle color data
         if colors is not None and len(colors) > 0:
@@ -300,313 +477,308 @@ class EphysPlots(param.Parameterized):
         else:
             color_values = np.ones(len(x))
 
-        points = hv.Points(
-            (x, y, color_values),
-            kdims=["x_img", "y"],
-            vdims=["color"],
-        )
-
-        return points.opts(
-            opts.Points(
-                color="color",
-                cmap=data.get("cmap", "viridis"),
-                clim=tuple(data.get("levels", (0, 1))),
-                size=3,
-                alpha=0.6,
-                ylabel="Depth (μm)",
-                title="",
-                colorbar=True,
-                width=width,
-                frame_height=frame_height,
-                ylim=y_range,
-                xaxis=None,
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                margin=0,
+        fig.add_trace(
+            go.Scatter(
+                x=x,
+                y=y,
+                mode="markers",
+                marker=dict(
+                    size=3,
+                    color=color_values,
+                    colorscale=cmap,
+                    cmin=levels[0],
+                    cmax=levels[1],
+                    showscale=True,
+                    colorbar=dict(thickness=10, len=0.7),
+                ),
             )
         )
 
-    def _create_probe_plot(self, data: dict, width: int = 80, frame_height: int = 450) -> hv.Element:
-        """Create probe geometry plot from bank data.
+    def _add_line_trace(self, fig: go.Figure, data: dict) -> None:
+        """Add line plot trace to figure."""
+        x_vals = data["x"]
+        y_vals = data["y"]
 
-        The probe data contains multiple banks (columns) that need to be
-        rendered side by side.
-        """
-        y_range = self._get_y_range()
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=y_vals,
+                mode="lines",
+                line=dict(color="#1f77b4", width=2),
+            )
+        )
 
-        if data is None:
-            return hv.Text(0, 0, "No data").opts(width=width, frame_height=frame_height)
-
+    def _add_probe_trace(self, fig: go.Figure, data: dict) -> None:
+        """Add probe geometry plot traces to figure."""
         img_list = data.get("img", [])
         scale = data.get("scale")
         offset = data.get("offset")
         levels = data.get("levels", (0, 1))
-        cmap = data.get("cmap", "viridis")
+        cmap = data.get("cmap", "Viridis")
 
         if not img_list or scale is None or offset is None:
-            return hv.Text(0, 0, "No probe data").opts(width=width, frame_height=frame_height)
+            return
 
-        # Create overlay of bank images
-        images = []
+        # Add each bank as a separate heatmap
         for i, bank_img in enumerate(img_list):
             if bank_img is None:
                 continue
             bank_scale = scale[i] if len(scale.shape) > 1 else scale
             bank_offset = offset[i] if len(offset.shape) > 1 else offset
 
-            bounds = (
-                bank_offset[0],
-                bank_offset[1],
-                bank_offset[0] + bank_img.shape[0] * bank_scale[0],
-                bank_offset[1] + bank_img.shape[1] * bank_scale[1],
+            x_coords = bank_offset[0] + np.arange(bank_img.shape[0]) * bank_scale[0]
+            y_coords = bank_offset[1] + np.arange(bank_img.shape[1]) * bank_scale[1]
+
+            fig.add_trace(
+                go.Heatmap(
+                    z=bank_img.T,
+                    x=x_coords,
+                    y=y_coords,
+                    colorscale=cmap,
+                    zmin=levels[0],
+                    zmax=levels[1],
+                    showscale=False,
+                )
             )
 
-            img = hv.Image(
-                bank_img.T,
-                bounds=bounds,
-                kdims=["x_probe", "y"],
+    def _add_reference_lines_to_figure(self, fig: go.Figure) -> None:
+        """Add draggable reference lines as shapes to the figure.
+        
+        Plotly allows shapes to be made draggable with editable=True.
+        """
+        if not self._reference_lines or not self._reference_lines.lines:
+            return
+
+        for i, (y_feature, _) in enumerate(self._reference_lines.lines):
+            color = LINE_COLORS[i % len(LINE_COLORS)]
+            is_selected = i == self._reference_lines.selected_index
+
+            # Add horizontal line shape (spans all three subplots)
+            fig.add_shape(
+                type="line",
+                x0=0,
+                x1=1,
+                xref="paper",  # Span full width
+                y0=y_feature,
+                y1=y_feature,
+                yref="y",
+                line=dict(
+                    color=color,
+                    width=3 if is_selected else 2,
+                    dash="solid" if is_selected else "dash",
+                ),
+                editable=True,  # Make draggable!
+                name=f"line_{i}",
             )
-            images.append(img)
 
-        if not images:
-            return hv.Text(0, 0, "No probe data").opts(width=width, frame_height=frame_height)
-
-        overlay = hv.Overlay(images)
-        return overlay.opts(
-            opts.Image(
-                cmap=cmap,
-                clim=tuple(levels),
-                colorbar=False,
-                margin=0,
-            ),
-            opts.Overlay(
-                width=width,
-                frame_height=frame_height,
-                xlabel="",
-                ylabel="",
-                ylim=y_range,
-                yaxis=None,
-                xaxis=None,
-                xlim=(0, 1),
-                title="",
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                margin=0,
-            ),
-        )
-
-    def _get_y_range(self) -> tuple:
-        """Get the shared Y-axis range for depth plots."""
-        return self.state.depth_y_range
-
-    def _create_placeholder_image(self, width: int = 350, frame_height: int = 450) -> hv.Image:
-        """Create a placeholder 2D image plot."""
-        y_range = self._get_y_range()
-        # Create gradient placeholder data
-        y = np.linspace(y_range[0], y_range[1], 100)
-        x = np.linspace(0, 100, 50)
-        xx, yy = np.meshgrid(x, y)
-        img = np.sin(yy / 500) * 0.5 + 0.5  # Gentle gradient
-
-        image = hv.Image(
-            img,
-            bounds=(0, y_range[0], 100, y_range[1]),
-            kdims=["x_img", "y"],
-        )
-        return image.opts(
-            opts.Image(
-                cmap="gray",
-                clim=(0, 1),
-                ylabel="Depth (μm)",
-                title="",
-                colorbar=False,
-                width=width,
-                frame_height=frame_height,
-                ylim=y_range,
-                xlim=(0, 100),
-                xaxis=None,
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                alpha=0.3,
-                margin=0,
-            )
-        )
-
-    def _create_placeholder_line(self, width: int = 150, frame_height: int = 450) -> hv.Path:
-        """Create a placeholder line plot."""
-        y_range = self._get_y_range()
-        y_vals = np.linspace(y_range[0], y_range[1], 100)
-        x_vals = np.random.rand(y_vals.size)  # R line
-
-        # Use unique x dim name so only y-axis is linked
-        path = hv.Path(
-            [np.column_stack([x_vals, y_vals])],
-            kdims=["x_line", "y"],
-        )
-        return path.opts(
-            opts.Path(
-                line_width=2,
-                color="#cccccc",
-                ylabel="",
-                width=width,
-                frame_height=frame_height,
-                ylim=y_range,
-                xlim=(0, 1),
-                yaxis=None,
-                xaxis=None,
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                margin=0,
-            )
-        )
-
-    def _create_placeholder_probe(self, width: int = 80, frame_height: int = 450) -> hv.Image:
-        """Create a placeholder probe plot."""
-        y_range = self._get_y_range()
-        # Create a simple vertical gradient
-        n_points = int(y_range[1] - y_range[0]) // 10
-        img = np.linspace(0, 1, max(n_points, 10)).reshape(-1, 1)
-
-        image = hv.Image(
-            img,
-            bounds=(0, y_range[0], 10, y_range[1]),
-            kdims=["x_probe", "y"],
-        )
-        return image.opts(
-            opts.Image(
-                cmap="gray",
-                clim=(0, 1),
-                ylabel="",
-                title="",
-                colorbar=False,
-                width=width,
-                frame_height=frame_height,
-                ylim=y_range,
-                xlim=(0, 10),
-                yaxis=None,
-                xaxis=None,
-                toolbar=None,
-                default_tools=[],
-                tools=["ywheel_zoom", "ypan"],
-                active_tools=["ywheel_zoom"],
-                alpha=0.3,
-                margin=0,
-            )
-        )
-
-    def _get_image_plot(self) -> hv.Element:
-        """Get the 2D image/scatter plot element."""
-        data = self._get_image_data(self.image_plot_type)
-        if data is None:
-            return self._create_placeholder_image()
-        elif "img" in data:
-            return self._create_image_plot(data)
-        elif "x" in data and "y" in data:
-            return self._create_scatter_plot(data)
+    def _on_click(self, click_data: dict) -> None:
+        """Handle Plotly click events for double-click line creation.
+        
+        Parameters
+        ----------
+        click_data : dict
+            Click event data from Plotly containing point coordinates.
+        """
+        if not click_data or not self._reference_lines:
+            return
+        
+        # Extract Y coordinate from click
+        points = click_data.get("points", [])
+        if not points:
+            return
+        
+        y_clicked = points[0].get("y")
+        if y_clicked is None:
+            return
+        
+        # Detect double-click (within 500ms)
+        import time
+        current_time = time.time()
+        time_diff = current_time - self._last_click_time
+        
+        if time_diff < 0.5 and self._last_click_y is not None:
+            # Double-click detected - add reference line
+            y_pos = (y_clicked + self._last_click_y) / 2  # Average of two clicks
+            self._reference_lines.add_line(y_pos)
+            logger.info(f"Double-click: added reference line at y={y_pos:.1f}")
+            
+            # Reset click tracking
+            self._last_click_time = 0
+            self._last_click_y = None
         else:
-            return self._create_placeholder_image()
+            # First click - store it
+            self._last_click_time = current_time
+            self._last_click_y = y_clicked
+    
+    def _on_relayout(self, relayout_data: dict) -> None:
+        """Handle Plotly relayout events (shape drags, zoom, etc.).
+        
+        Parameters
+        ----------
+        relayout_data : dict
+            Relayout event data from Plotly.
+        """
+        if not relayout_data:
+            return
 
-    def _get_line_plot(self) -> hv.Element:
-        """Get the line plot element."""
-        data = self._get_line_data(self.line_plot_type)
-        if data is None:
-            return self._create_placeholder_line()
-        else:
-            return self._create_line_plot(data)
+        # Parse shape drag events
+        for key, value in relayout_data.items():
+            if key.startswith("shapes[") and ".y0" in key:
+                # Extract shape index from key like 'shapes[2].y0'
+                try:
+                    shape_idx = int(key.split("[")[1].split("]")[0])
+                    if self._reference_lines is not None and 0 <= shape_idx < len(self._reference_lines.lines):
+                        # Get current track position
+                        _, y_track = self._reference_lines.lines[shape_idx]
+                        # Update feature position (y_track stays the same)
+                        self._reference_lines.update_line_position(shape_idx, value, y_track)
+                        logger.debug(f"Updated line {shape_idx} feature position to {value:.1f}")
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Failed to parse shape drag event: {e}")
 
-    def _get_probe_plot(self) -> hv.Element:
-        """Get the probe plot element."""
-        data = self._get_probe_data(self.probe_plot_type)
-        if data is None:
-            return self._create_placeholder_probe()
-        else:
-            return self._create_probe_plot(data)
+            # Parse Y-axis zoom/pan events for synchronization
+            elif key == "yaxis.range[0]":
+                y_min = relayout_data.get("yaxis.range[0]")
+                y_max = relayout_data.get("yaxis.range[1]")
+                if y_min is not None and y_max is not None:
+                    self.state.depth_y_range = (y_min, y_max)
+                    logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
-    def get_linked_plots(self) -> hv.Layout:
-        """Return all three plots as a linked HoloViews Layout.
-
-        This allows axis linking with external plots (e.g., histology).
+    @param.depends("refresh", "image_plot_type")
+    def view_image(self) -> pn.pane.Plotly:
+        """Return the image plot pane.
 
         Returns
         -------
-        hv.Layout
-            Layout containing image, line, and probe plots with shared Y-axis.
+        pn.pane.Plotly
+            Plotly pane containing image plot.
         """
-        image_plot = self._get_image_plot()
-        line_plot = self._get_line_plot()
-        probe_plot = self._get_probe_plot()
-
-        # Combine into a Layout with shared Y-axis
-        layout = (image_plot + line_plot + probe_plot).opts(
-            opts.Layout(shared_axes=True, hspace=0.0, vspace=0.0)
-        )
-
-        layout = layout.opts(
-            opts.Element(min_border=0),
-            opts.Overlay(min_border=0),
+        fig = self._create_image_figure()
+        
+        pane = pn.pane.Plotly(
+            fig,
+            sizing_mode="stretch_both",
+            config={
+                "scrollZoom": True,
+                "displayModeBar": True,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displaylogo": False,
+                "editable": True,
+            },
         )
         
-        return layout
+        pane.param.watch(
+            lambda event: self._on_relayout(event.new), "relayout_data"
+        )
+        pane.param.watch(
+            lambda event: self._on_click(event.new), "click_data"
+        )
+        
+        return pane
 
-    @param.depends("refresh", "image_plot_type", "line_plot_type", "probe_plot_type")
-    def view(self) -> pn.pane.HoloViews:
-        """Return the three-column plot view with linked Y-axes.
+    @param.depends("refresh", "line_plot_type")
+    def view_line(self) -> pn.pane.Plotly:
+        """Return the line plot pane.
 
         Returns
         -------
-        pn.pane.HoloViews
-            HoloViews pane containing linked plots.
+        pn.pane.Plotly
+            Plotly pane containing line plot.
         """
-        layout = self.get_linked_plots()
-        return pn.pane.HoloViews(layout, sizing_mode="stretch_both", margin=0)
+        fig = self._create_line_figure()
+        
+        pane = pn.pane.Plotly(
+            fig,
+            sizing_mode="stretch_both",
+            config={
+                "scrollZoom": True,
+                "displayModeBar": True,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displaylogo": False,
+                "editable": True,
+            },
+        )
+        
+        pane.param.watch(
+            lambda event: self._on_relayout(event.new), "relayout_data"
+        )
+        pane.param.watch(
+            lambda event: self._on_click(event.new), "click_data"
+        )
+        
+        return pane
+
+    @param.depends("refresh", "probe_plot_type")
+    def view_probe(self) -> pn.pane.Plotly:
+        """Return the probe plot pane.
+
+        Returns
+        -------
+        pn.pane.Plotly
+            Plotly pane containing probe plot.
+        """
+        fig = self._create_probe_figure()
+        
+        pane = pn.pane.Plotly(
+            fig,
+            sizing_mode="stretch_both",
+            config={
+                "scrollZoom": True,
+                "displayModeBar": True,
+                "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+                "displaylogo": False,
+                "editable": True,
+            },
+        )
+        
+        pane.param.watch(
+            lambda event: self._on_relayout(event.new), "relayout_data"
+        )
+        pane.param.watch(
+            lambda event: self._on_click(event.new), "click_data"
+        )
+        
+        return pane
 
     def controls(self, selector: str) -> pn.widgets.Select:
-        """Return plot control widgets as a row of selectors.
+        """Return plot control widgets.
 
-        Each selector is placed in a fixed-width container matching its
-        corresponding plot width (Image: 350px, Line: 150px, Probe: 80px).
+        Parameters
+        ----------
+        selector : str
+            One of 'image', 'line', or 'probe'.
 
         Returns
         -------
-        pn.Row
-            Row of plot type selectors aligned with their plots.
+        pn.widgets.Select
+            Select widget for plot type.
         """
-        # Create selectors with widths matching plot widths
-
-        if selector == 'image':
-            image_selector = pn.widgets.Select(
+        if selector == "image":
+            widget = pn.widgets.Select(
                 name="2D Plot",
                 options=IMAGE_PLOT_OPTIONS,
                 value=self.image_plot_type,
                 width=120,
             )
-            image_selector.link(self, value="image_plot_type")
-            return image_selector
-        elif selector == 'line':
-            line_selector = pn.widgets.Select(
+            widget.link(self, value="image_plot_type")
+            return widget
+        elif selector == "line":
+            widget = pn.widgets.Select(
                 name="Line Plot",
                 options=LINE_PLOT_OPTIONS,
                 value=self.line_plot_type,
                 width=120,
             )
-            line_selector.link(self, value="line_plot_type")
-            return line_selector
-        elif selector == 'probe':
-            probe_selector = pn.widgets.Select(
+            widget.link(self, value="line_plot_type")
+            return widget
+        elif selector == "probe":
+            widget = pn.widgets.Select(
                 name="Probe Plot",
                 options=PROBE_PLOT_OPTIONS,
                 value=self.probe_plot_type,
                 width=100,
             )
-            probe_selector.link(self, value="probe_plot_type")
-            return probe_selector
+            widget.link(self, value="probe_plot_type")
+            return widget
         else:
             raise ValueError(f"Unknown selector type: {selector}")

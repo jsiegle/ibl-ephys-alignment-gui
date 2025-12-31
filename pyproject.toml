@@ -31,8 +31,9 @@ dynamic = ["version"]
 dev = ['black', 'coverage', 'flake8', 'interrogate', 'isort']
 web = [
   'panel>=1.3.0',
-  'holoviews>=1.18.0',
-  'bokeh>=3.3.0',
+  'plotly>=5.18.0',
+  'bokeh>=3.3.0',  # Required by Panel as rendering backend
+  'holoviews>=1.18.0',  # Required by Panel
 ]
 
 [project.scripts]
