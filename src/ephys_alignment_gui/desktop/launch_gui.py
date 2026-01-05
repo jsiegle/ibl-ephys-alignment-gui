@@ -2030,9 +2030,7 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
 
         self.img_lfp_corr_data = self.plotdata.get_lfp_correlation_data_img()
         self.line_fr_data, self.line_amp_data = self.plotdata.get_fr_amp_data_line()
-        self.probe_rfmap, self.rfmap_boundaries = self.plotdata.get_rfmap_data()
-        self.img_stim_data = self.plotdata.get_passive_events()
-
+        
         if self.histology_exists:
             logger.debug("Getting slice images...")
             self.slice_data, self.fp_slice_data = self.loaddata.get_slice_images(
@@ -2197,7 +2195,6 @@ class MainWindow(QtWidgets.QMainWindow, ephys_gui.Setup):
         self.img_spike_corr_data = self.plotdata.get_spike_correlation_data_img()
         self.img_fr_data = self.plotdata.get_fr_img()
         self.line_fr_data, self.line_amp_data = self.plotdata.get_fr_amp_data_line()
-        self.probe_rfmap, self.rfmap_boundaries = self.plotdata.get_rfmap_data()
         self.img_stim_data = self.plotdata.get_passive_events()
         self.img_init.setChecked(True)
         self.line_init.setChecked(True)

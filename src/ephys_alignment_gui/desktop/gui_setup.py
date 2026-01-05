@@ -161,15 +161,6 @@ class Setup:
         img_options.addAction(scatter_amp)
         self.img_options_group.addAction(scatter_amp)
 
-        stim_type = list(self.img_stim_data.keys())
-        for stim in stim_type:
-            img = QtWidgets.QAction(stim, self, checkable=True, checked=False)
-            img.triggered.connect(
-                lambda checked, item=stim: self.plot_image(self.img_stim_data[item])
-            )
-            img_options.addAction(img)
-            self.img_options_group.addAction(img)
-
         self.img_options_group.triggered.connect(self._on_img_action_triggered)
         self.current_img_action = self.img_init
         self.current_img_action.setChecked(
@@ -232,19 +223,6 @@ class Setup:
             probe = QtWidgets.QAction(band, self, checkable=True, checked=False)
             probe.triggered.connect(
                 lambda checked, item=band: self.plot_probe(self.probe_lfp_data[item])
-            )
-            probe_options.addAction(probe)
-            self.probe_options_group.addAction(probe)
-
-        sub_types = list(self.probe_rfmap.keys())
-        for sub in sub_types:
-            probe = QtWidgets.QAction(
-                f"RF Map - {sub}", self, checkable=True, checked=False
-            )
-            probe.triggered.connect(
-                lambda checked, item=sub: self.plot_probe(
-                    self.probe_rfmap[item], bounds=self.rfmap_boundaries
-                )
             )
             probe_options.addAction(probe)
             self.probe_options_group.addAction(probe)
