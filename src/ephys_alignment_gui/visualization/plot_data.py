@@ -180,6 +180,7 @@ class PlotData:
                 self.data["spikes"]["amps"][self.spike_idx][self.kp_idx],
                 [0, 0.9],
             )
+
             amp_bins = np.linspace(amp_range[0], amp_range[1], A_BIN)
             colour_bin = np.linspace(0.0, 1.0, A_BIN + 1)
             colours = (
@@ -365,7 +366,7 @@ class PlotData:
                 "offset": np.array([0, np.min(depths)]),
                 "xrange": np.array([times[0], times[-1]]),
                 "xaxis": "Time (s)",
-                "cmap": "binary",
+                "cmap": "Greys",
                 "title": "Firing Rate",
             }
 

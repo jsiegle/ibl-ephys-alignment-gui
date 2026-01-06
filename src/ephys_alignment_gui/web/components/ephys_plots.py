@@ -78,7 +78,7 @@ class EphysPlots(param.Parameterized):
 
     # Individual plot type selections
     image_plot_type = param.Selector(
-        default="firing_rate",
+        default="cluster_fr",
         objects=list(IMAGE_PLOT_OPTIONS.values()),
         doc="Type of 2D image plot to display",
     )
@@ -255,7 +255,7 @@ class EphysPlots(param.Parameterized):
                 "scale": [x[1] - x[0], (y_max - y_min) / n_y],
                 "offset": [0, y_min],
                 "levels": (0, 1),
-                "cmap": "Viridis",
+                "cmap": "viridis",
             }
         return self._placeholder_image_data
 
@@ -288,25 +288,33 @@ class EphysPlots(param.Parameterized):
                 "scale": np.array([[10, (y_max - y_min) / n_y]]),
                 "offset": np.array([[0, y_min]]),
                 "levels": (0, 1),
-                "cmap": "Viridis",
+                "cmap": "viridis",
             }
         return self._placeholder_probe_data
 
     def _create_image_figure(self) -> go.Figure:
         """Create the image plot figure."""
+
+        logging.debug(f"Creating image figure for plot type: {self.image_plot_type}")
+
         fig = go.Figure()
         y_range = self.state.depth_y_range
+        logging.debug(f"Image figure y_range: {y_range}")
         image_data = self._get_image_data(self.image_plot_type)
 
         # Use placeholder data if no real data
         if image_data is None:
             image_data = self._get_placeholder_image_data()
 
+        logging.debug(f"Image data keys: {list(image_data.keys())}")
+
         # Add image or scatter trace
         if image_data and "img" in image_data:
             self._add_image_trace(fig, image_data)
         elif image_data and "x" in image_data and "y" in image_data:
             self._add_scatter_trace(fig, image_data)
+
+        logging.debug(f"Added image or scatter trace to figure")
 
         # Add reference lines
         if self._reference_lines is not None:
@@ -428,11 +436,13 @@ class EphysPlots(param.Parameterized):
         if self._reference_lines is not None:
             self._add_reference_lines_to_figure(fig)
 
-        # Update axes
+        # Update axes - x-axis range matches tiled banks [0, 1]
         fig.update_xaxes(
             showticklabels=False, 
             showgrid=False, 
-            zeroline=False)
+            zeroline=False,
+            range=[0, 1],
+        )
         fig.update_yaxes(
             range=[y_range[0], y_range[1]],
             showticklabels=False,
@@ -458,14 +468,23 @@ class EphysPlots(param.Parameterized):
     def _add_image_trace(self, fig: go.Figure, data: dict) -> None:
         """Add heatmap trace to figure."""
         img = data["img"]
+
+        if img.shape[0] > 50000:
+            logging.debug("Downsampling image data for performance")
+            img = img[::100, :]
+        logging.debug(f"Adding image trace with shape: {img.shape}")
         scale = data["scale"]
+        logging.debug(f"Image scale: {scale}")
         offset = data["offset"]
+        logging.debug(f"Image offset: {offset}")
         levels = data["levels"]
-        cmap = data.get("cmap", "Viridis")
+        logging.debug(f"Image levels: {levels}")
 
         # Create coordinate arrays for the heatmap
         x_coords = offset[0] + np.arange(img.shape[0]) * scale[0]
         y_coords = offset[1] + np.arange(img.shape[1]) * scale[1]
+        logging.debug(f'Image x_coords min: {x_coords.min()} max: {x_coords.max()}')
+        logging.debug(f'Image y_coords min: {y_coords.min()} max: {y_coords.max()}')
 
         fig.add_trace(
             go.Heatmap(
@@ -475,18 +494,33 @@ class EphysPlots(param.Parameterized):
                 zmin=levels[0],
                 zmax=levels[1],
                 hoverinfo='none',
+                colorscale=data.get("cmap", "viridis").lower(),
                 showscale=True,
                 colorbar=dict(thickness=10, len=0.7),
             )
         )
 
+        logging.debug("Image trace added to figure")
+
     def _add_scatter_trace(self, fig: go.Figure, data: dict) -> None:
         """Add scatter plot trace to figure."""
         x = data["x"]
         y = data["y"]
+
+        logging.debug(f"Adding scatter trace with {len(x)} points")
+
+        if len(x) > 20000:
+            logging.debug("Downsampling scatter data for performance")
+            indices = np.linspace(0, len(x) - 1, 20000).astype(int)
+            x = x[indices]
+            y = y[indices]
+
         colors = data.get("colours")
         levels = data.get("levels", (0, 1))
-        cmap = data.get("cmap", "Viridis")
+
+        logging.debug(f'Color value range: {levels}')
+        logging.debug(f'Minimum color value: {np.min(colors) if colors is not None else "N/A"}')
+        logging.debug(f'Maximum color value: {np.max(colors) if colors is not None else "N/A"}')
 
         # Handle color data
         if colors is not None and len(colors) > 0:
@@ -513,6 +547,8 @@ class EphysPlots(param.Parameterized):
             )
         )
 
+        logging.debug("Scatter trace added to figure")
+
     def _add_line_trace(self, fig: go.Figure, data: dict) -> None:
         """Add line plot trace to figure."""
         x_vals = data["x"]
@@ -529,33 +565,53 @@ class EphysPlots(param.Parameterized):
         )
 
     def _add_probe_trace(self, fig: go.Figure, data: dict) -> None:
-        """Add probe geometry plot traces to figure."""
+        """Add probe geometry plot traces to figure.
+        
+        Banks are tiled evenly across the x-axis from 0 to 1, regardless of
+        their original physical offsets.
+        """
         img_list = data.get("img", [])
+        logger.debug(f"Probe trace img_list length: {len(img_list)}")
         scale = data.get("scale")
+        logger.debug(f"Probe trace scale: {scale}")
         offset = data.get("offset")
+        logger.debug(f"Probe trace offset: {offset}")
         levels = data.get("levels", (0, 1))
-        cmap = data.get("cmap", "Viridis")
+        cmap = data.get("cmap", "viridis").lower()
 
-        logger.debug(f"Adding probe trace with {len(img_list)} banks")
+        # Filter out None banks
+        valid_banks = [(i, img) for i, img in enumerate(img_list) if img is not None]
+        n_banks = len(valid_banks)
+        
+        logger.debug(f"Adding probe trace with {n_banks} valid banks")
 
-        if not img_list or scale is None or offset is None:
+        if n_banks == 0 or scale is None or offset is None:
             return
 
-        # Add each bank as a separate heatmap
-        for i, bank_img in enumerate(img_list):
+        # Calculate width per bank to evenly tile x-axis from 0 to 1
+        bank_width = 1.0 / n_banks
 
-            logger.debug(f"Adding bank {i} to probe plot")
-            if bank_img is None:
-                continue
-            bank_scale = scale[i] if len(scale.shape) > 1 else scale
-            bank_offset = offset[i] if len(offset.shape) > 1 else offset
+        # Add each bank as a separate heatmap, tiled evenly across x-axis
+        for tile_idx, (orig_idx, bank_img) in enumerate(valid_banks):
+            logger.debug(f"Adding bank {orig_idx} (tile {tile_idx}) to probe plot")
+            
+            # Get original scale for y-axis (depth) scaling
+            bank_scale = scale[orig_idx] if len(scale.shape) > 1 else scale
+            bank_offset = offset[orig_idx] if len(offset.shape) > 1 else offset
+            logger.debug(f"Bank {orig_idx} original scale: {bank_scale}")
+            logger.debug(f"Bank {orig_idx} original offset: {bank_offset}")
 
-            x_coords = bank_offset[0] + np.arange(bank_img.shape[0]) * bank_scale[0]
+            # Tile banks evenly across x-axis: each bank spans [tile_idx/n_banks, (tile_idx+1)/n_banks]
+            x_start = tile_idx * bank_width
+            x_end = (tile_idx + 1) * bank_width
+            x_coords = np.linspace(x_start, x_end, bank_img.shape[0])
+            
+            # Keep original y-axis scaling (depth)
             y_coords = bank_offset[1] + np.arange(bank_img.shape[1]) * bank_scale[1]
 
-            #logger.debug(f"Bank {i} x_coords: {x_coords}")
-            #logger.debug(f"Bank {i} y_coords: {y_coords}")  
-            #logger.debug(f"Bank {i} img shape: {bank_img.shape}")
+            logger.debug(f"Bank {orig_idx} tiled x_coords: [{x_coords[0]:.3f}, {x_coords[-1]:.3f}]")
+            logger.debug(f"Bank {orig_idx} y_coords: [{y_coords[0]:.1f}, {y_coords[-1]:.1f}]")
+            logger.debug(f"Bank {orig_idx} img shape: {bank_img.shape}")
 
             fig.add_trace(
                 go.Heatmap(
@@ -687,7 +743,7 @@ class EphysPlots(param.Parameterized):
                 self.state.depth_y_range = (y_min, y_max)
                 logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
-    @param.depends("_refresh_counter", "image_plot_type")
+    @param.depends("_refresh_counter")
     def image_view(self) -> pn.pane.Plotly:
         """Return the image plot pane.
 
@@ -732,7 +788,7 @@ class EphysPlots(param.Parameterized):
         
         return pane
 
-    @param.depends("_refresh_counter", "line_plot_type")
+    @param.depends("_refresh_counter")
     def line_view(self) -> pn.pane.Plotly:
         """Return the line plot pane.
 
@@ -777,7 +833,7 @@ class EphysPlots(param.Parameterized):
         
         return pane
 
-    @param.depends("_refresh_counter", "probe_plot_type")
+    @param.depends("_refresh_counter")
     def probe_view(self) -> pn.pane.Plotly:
         """Return the probe plot pane.
 
@@ -864,3 +920,4 @@ class EphysPlots(param.Parameterized):
             return widget
         else:
             raise ValueError(f"Unknown selector type: {selector}")
+        
