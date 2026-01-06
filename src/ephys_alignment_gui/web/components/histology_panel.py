@@ -324,6 +324,7 @@ class HistologyPanel(param.Parameterized):
             y=text_y_positions,
             mode="text",
             text=text_labels,
+            showlegend=False,
             textposition="middle center"
         ))
             
