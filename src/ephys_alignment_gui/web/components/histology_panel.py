@@ -93,7 +93,14 @@ class HistologyPanel(param.Parameterized):
 
     def _on_y_range_changed(self, event) -> None:
         """Handle Y-range change from ephys plots (for synchronization)."""
-        self._refresh_counter += 1
+        #self._refresh_counter += 1
+        y_range = self.state.depth_y_range
+        self.histology_fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            showticklabels=False,
+            showgrid=False,
+            fixedrange=False,
+        )
 
     def _render_histology_to_image(self, hist_data: dict, y_range: tuple) -> np.ndarray:
         """Render histology regions as RGB numpy array.
@@ -519,5 +526,7 @@ class HistologyPanel(param.Parameterized):
         pane.param.watch(
             lambda event: self._on_click(event.new), "click_data"
         )
+
+        self.histology_fig = fig  # Store for later access
         
         return pane

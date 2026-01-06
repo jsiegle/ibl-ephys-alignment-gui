@@ -130,20 +130,47 @@ class EphysPlots(param.Parameterized):
     def _on_reference_lines_changed(self, event) -> None:
         """Handle reference lines change."""
         self._refresh_counter += 1
+        logging.info("Reference lines changed, refreshing plots")
 
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
         if event.new:
             logger.info("EphysPlots: data_loaded event received")
             self._refresh_counter += 1
+            logging.info("EphysPlots: refresh triggered due to data load")
 
     def _on_y_range_changed(self, event) -> None:
         """Handle Y-range change from another plot (for synchronization)."""
-        self._refresh_counter += 1
+        #self._refresh_counter += 1
+
+        y_range = self.state.depth_y_range
+        self.image_fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            showticklabels=False,
+            showgrid=False,
+            fixedrange=False,
+        )
+
+        self.probe_fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            showticklabels=False,
+            showgrid=False,
+            fixedrange=False,
+        )
+
+        self.line_fig.update_yaxes(
+            range=[y_range[0], y_range[1]],
+            showticklabels=False,
+            showgrid=False,
+            fixedrange=False,
+        )
+
+        logging.info("EphysPlots: refresh triggered due to Y-range change")
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle plot type change."""
         self._refresh_counter += 1
+        logging.info(f"EphysPlots: refresh triggered due to plot type change: {event.name}")
 
     @property
     def _plot_data(self) -> PlotData | None:
@@ -443,6 +470,7 @@ class EphysPlots(param.Parameterized):
             zeroline=False,
             range=[0, 1],
         )
+
         fig.update_yaxes(
             range=[y_range[0], y_range[1]],
             showticklabels=False,
@@ -752,6 +780,9 @@ class EphysPlots(param.Parameterized):
         pn.pane.Plotly
             Plotly pane containing image plot.
         """
+
+        logging.debug(f"Creating image view for plot type: {self.image_plot_type}")
+
         fig = self._create_image_figure()
         
         pane = pn.pane.Plotly(
@@ -785,6 +816,8 @@ class EphysPlots(param.Parameterized):
         pane.param.watch(
             lambda event: self._on_click(event.new), "click_data"
         )
+
+        self.image_fig = fig  # Store for later access
         
         return pane
 
@@ -797,6 +830,8 @@ class EphysPlots(param.Parameterized):
         pn.pane.Plotly
             Plotly pane containing line plot.
         """
+
+        logging.debug(f"Creating line view for plot type: {self.line_plot_type}")
         fig = self._create_line_figure()
         
         pane = pn.pane.Plotly(
@@ -831,6 +866,8 @@ class EphysPlots(param.Parameterized):
             lambda event: self._on_click(event.new), "click_data"
         )
         
+        self.line_fig = fig  # Store for later access
+        
         return pane
 
     @param.depends("_refresh_counter")
@@ -842,6 +879,8 @@ class EphysPlots(param.Parameterized):
         pn.pane.Plotly
             Plotly pane containing probe plot.
         """
+
+        logging.debug(f"Creating probe view for plot type: {self.probe_plot_type}")
         fig = self._create_probe_figure()
         
         pane = pn.pane.Plotly(
@@ -876,6 +915,8 @@ class EphysPlots(param.Parameterized):
             lambda event: self._on_click(event.new), "click_data"
         )
         
+        self.probe_fig = fig  # Store for later access
+
         return pane
 
     def controls(self, selector: str) -> pn.widgets.Select:
