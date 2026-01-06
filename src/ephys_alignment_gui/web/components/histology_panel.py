@@ -312,7 +312,7 @@ class HistologyPanel(param.Parameterized):
             y=text_y_positions,
             mode="text",
             text=text_labels,
-            textposition="center"
+            textposition="middle center"
         ))
             
         logger.debug(f'Added {len(regions)} region bars')
