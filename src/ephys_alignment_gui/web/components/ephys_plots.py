@@ -103,6 +103,8 @@ class EphysPlots(param.Parameterized):
         self.state = state
         self._reference_lines = reference_lines
 
+        self.figure_that_changed = None
+
         # Cache placeholder data (generated once)
         self._placeholder_image_data: dict | None = None
         self._placeholder_line_data: dict | None = None
@@ -129,8 +131,11 @@ class EphysPlots(param.Parameterized):
 
     def _on_reference_lines_changed(self, event) -> None:
         """Handle reference lines change."""
-        self._refresh_counter += 1
-        logging.info("Reference lines changed, refreshing plots")
+        logging.info("!!!!!! Reference lines changed, refreshing plots")
+        self._add_reference_lines_to_figure(self.probe_fig)
+        self._add_reference_lines_to_figure(self.image_fig)
+        self._add_reference_lines_to_figure(self.line_fig)
+        
 
     def _on_data_loaded(self, event) -> None:
         """Handle data loaded event."""
@@ -659,31 +664,38 @@ class EphysPlots(param.Parameterized):
         
         Plotly allows shapes to be made draggable with editable=True.
         """
+
         if not self._reference_lines or not self._reference_lines.lines:
             return
 
         for i, (y_feature, _) in enumerate(self._reference_lines.lines):
-            color = LINE_COLORS[i % len(LINE_COLORS)]
-            is_selected = i == self._reference_lines.selected_index
+            
+            if i < len(fig.layout.shapes):
+                fig.layout.shapes[i].y0 = y_feature
+                fig.layout.shapes[i].y1 = y_feature
+            else:
+                color = LINE_COLORS[i % len(LINE_COLORS)]
+                is_selected = i == self._reference_lines.selected_index
 
-            # Add horizontal line shape extending far beyond visible area
-            # so endpoints are not accessible to users
-            fig.add_shape(
-                type="line",
-                x0=-10,
-                x1=10,
-                xref="paper",  # Paper coordinates: 0-1 is visible, beyond is clipped
-                y0=y_feature,
-                y1=y_feature,
-                yref="y",
-                line=dict(
-                    color=color,
-                    width=3 if is_selected else 2,
-                    dash="solid" if is_selected else "dash",
-                ),
-                editable=True,  # Make draggable!
-                name=f"line_{i}",
-            )
+                # Add horizontal line shape extending far beyond visible area
+                # so endpoints are not accessible to users
+                logger.debug(f"Adding reference line {i} at y={y_feature:.1f}, selected={is_selected}")
+                fig.add_shape(
+                    type="line",
+                    x0=-10,
+                    x1=10,
+                    xref="paper",  # Paper coordinates: 0-1 is visible, beyond is clipped
+                    y0=y_feature,
+                    y1=y_feature,
+                    yref="y",
+                    line=dict(
+                        color=color,
+                        width=3 if is_selected else 2,
+                        dash="solid" if is_selected else "dash",
+                    ),
+                    editable=True,  # Make draggable!
+                    name=f"line_{i}",
+                )
 
     def _on_click(self, click_data: dict) -> None:
         """Handle Plotly click events for double-click line creation.
@@ -718,7 +730,9 @@ class EphysPlots(param.Parameterized):
         if time_diff < 0.5 and self._last_click_y is not None:
             # Double-click detected - add reference line
             y_pos = (y_clicked + self._last_click_y) / 2  # Average of two clicks
-            self._reference_lines.add_line(y_pos)
+            
+            logger.info(f"Double-click: adding reference line at y={y_pos:.1f}")
+            self._reference_lines.add_line(y_pos) # <-- triggers on_reference_lines_changed
             logger.info(f"Double-click: added reference line at y={y_pos:.1f}")
             
             # Reset click tracking
@@ -741,7 +755,7 @@ class EphysPlots(param.Parameterized):
         if not relayout_data:
             return
         
-        logger.debug(f"Relayout event: {relayout_data}")
+        #logger.debug(f"Relayout event: {relayout_data}")
 
         # Collect shape Y-position changes (handle both y0 and y1 to keep lines horizontal)
         shape_y_changes: dict[int, float] = {}
@@ -760,7 +774,8 @@ class EphysPlots(param.Parameterized):
                 # Get current track position
                 _, y_track = self._reference_lines.lines[shape_idx]
                 # Update feature position (y_track stays the same)
-                self._reference_lines.update_line_position(shape_idx, new_y, y_track)
+                logger.debug(f"Updating line {shape_idx} to new y={new_y:.1f}")
+                self._reference_lines.update_line_position(shape_idx, new_y, y_track) # <-- triggers on_reference_lines_changed
                 logger.debug(f"Updated line {shape_idx} feature position to {new_y:.1f}")
 
         # Parse Y-axis zoom/pan events for synchronization

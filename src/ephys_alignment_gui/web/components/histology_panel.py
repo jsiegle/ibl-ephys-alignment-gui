@@ -85,7 +85,7 @@ class HistologyPanel(param.Parameterized):
 
     def _on_reference_lines_changed(self, event) -> None:
         """Handle reference lines change."""
-        self._refresh_counter += 1
+        self._add_reference_lines_to_figure(self.histology_fig)
 
     def _on_plot_type_changed(self, event) -> None:
         """Handle plot type change."""
@@ -217,26 +217,31 @@ class HistologyPanel(param.Parameterized):
             return
         
         for i, (_, y_track) in enumerate(self._reference_lines.lines):
-            color = LINE_COLORS[i % len(LINE_COLORS)]
-            is_selected = i == self._reference_lines.selected_index
             
-            # Extend line far beyond visible area so endpoints are not accessible
-            fig.add_shape(
-                type="line",
-                x0=-10,
-                x1=10,
-                xref="paper",  # Paper coordinates: 0-1 is visible, beyond is clipped
-                y0=y_track,
-                y1=y_track,
-                yref="y",
-                line=dict(
-                    color=color,
-                    width=3 if is_selected else 2,
-                    dash="solid" if is_selected else "dash",
-                ),
-                editable=True,
-                name=f"line_{i}",
-            )
+            if i < len(fig.layout.shapes):
+                fig.layout.shapes[i].y0 = y_track
+                fig.layout.shapes[i].y1 = y_track
+            else:
+                color = LINE_COLORS[i % len(LINE_COLORS)]
+                is_selected = i == self._reference_lines.selected_index
+                
+                # Extend line far beyond visible area so endpoints are not accessible
+                fig.add_shape(
+                    type="line",
+                    x0=-10,
+                    x1=10,
+                    xref="paper",  # Paper coordinates: 0-1 is visible, beyond is clipped
+                    y0=y_track,
+                    y1=y_track,
+                    yref="y",
+                    line=dict(
+                        color=color,
+                        width=3 if is_selected else 2,
+                        dash="solid" if is_selected else "dash",
+                    ),
+                    editable=True,
+                    name=f"line_{i}",
+                )
 
     def _create_figure(self) -> go.Figure:
         """Create Plotly figure for histology panel.
