@@ -238,20 +238,44 @@ class DataSelectionPanel(param.Parameterized):
             speedy=False,
         )
         
-        # Get initial histology scaling
-        hist_regions, hist_axis_labels = ephys_alignment.scale_histology_regions(
-            ephys_alignment.track_extent, ephys_alignment.track_extent
-        )
+        # Get initial feature/track arrays from alignment
+        features, track, _ = ephys_alignment.get_track_and_feature()
+        self.state.features = features
+        self.state.track = track
         
-        # Store hist_data in state
+        # Get ALIGNED histology using current features/track
+        hist_regions, hist_axis_labels = ephys_alignment.scale_histology_regions(
+            features, track
+        )
         self.state.hist_data = {
             "region": hist_regions,
             "axis_label": hist_axis_labels,
             "colour": ephys_alignment.region_colour,
         }
         
-        # Store alignment and plot data objects in state
+        # Get REFERENCE (unaligned) histology using track_extent
+        hist_regions_ref, hist_axis_labels_ref = ephys_alignment.scale_histology_regions(
+            ephys_alignment.track_extent, ephys_alignment.track_extent
+        )
+        self.state.hist_data_ref = {
+            "region": hist_regions_ref,
+            "axis_label": hist_axis_labels_ref,
+            "colour": ephys_alignment.region_colour,
+        }
+        
+        # Store alignment object in state
         self.state.ephys_alignment = ephys_alignment
+        
+        # Set probe bounds from alignment track extent (convert m to µm)
+        probe_tip_um = ephys_alignment.track_extent[0] * 1e6
+        probe_top_um = ephys_alignment.track_extent[1] * 1e6
+        self.state.probe_tip = probe_tip_um
+        self.state.probe_top = probe_top_um
+        
+        # Set depth_y_range from probe bounds with padding
+        padding = 100  # µm
+        self.state.depth_y_range = (probe_tip_um - padding, probe_top_um + padding)
+        logger.info(f"Set depth_y_range to ({probe_tip_um - padding:.1f}, {probe_top_um + padding:.1f}) µm")
         
         # Load LFP correlation data if available
         lfp_corr_data = loaddata.load_lfp_correlation_data(probe_path)

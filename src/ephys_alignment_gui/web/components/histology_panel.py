@@ -120,14 +120,14 @@ class HistologyPanel(param.Parameterized):
         regions = hist_data.get("region", [])
         colours = hist_data.get("colour", [])
         
-        #logger.debug(f"Rendering {len(regions)} histology regions, y_range={y_range}")
-        
+        logger.debug(f"Rendering {len(regions)} histology regions, y_range={y_range}")
+
         for i, (region, colour) in enumerate(zip(regions, colours)):
             if len(region) < 2:
                 continue
             y_min, y_max = region[0], region[1]
 
-            #logger.debug(f"Region {i}: y=({y_min:.1f},{y_max:.1f}) colour={colour}")
+            logger.debug(f"Region {i}: y=({y_min:.1f},{y_max:.1f}) colour={colour} name={region}")
             
             # Convert y positions to pixel indices
             idx_min = int((y_min - y_range[0]) / (y_range[1] - y_range[0]) * n_pixels)
@@ -135,7 +135,7 @@ class HistologyPanel(param.Parameterized):
             idx_min = max(0, min(n_pixels - 1, idx_min))
             idx_max = max(0, min(n_pixels, idx_max))
 
-            #logger.debug(f"Region {i} pixel indices: ({idx_min}, {idx_max})")
+            logger.debug(f"Region {i} pixel indices: ({idx_min}, {idx_max})")
             
             if isinstance(colour, (list, tuple)) and len(colour) >= 3:
                 img[idx_min:idx_max, :, 0] = int(colour[0])
@@ -165,24 +165,20 @@ class HistologyPanel(param.Parameterized):
         if self._placeholder_hist_data is None:
             # Create 10 colorful stacked regions across the probe depth
             y_min, y_max = -100, 3940
-            n_regions = 10
+            n_regions = 5
             region_height = (y_max - y_min) / n_regions
             
             regions = []
             colours = []
+            labels = []
             
             # Color palette for regions (varied colors)
             color_palette = [
-                (255, 100, 100),  # Light red
-                (100, 150, 255),  # Light blue
-                (150, 255, 150),  # Light green
-                (255, 200, 100),  # Orange
-                (200, 150, 255),  # Purple
-                (255, 255, 100),  # Yellow
-                (100, 255, 200),  # Cyan
-                (255, 150, 200),  # Pink
-                (150, 200, 150),  # Sage green
-                (200, 200, 255),  # Lavender
+                (162, 177, 216),
+                (152, 214, 249),
+                (31, 157, 90),
+                (89, 179, 99),
+                (0, 0, 0),
             ]
             
             for i in range(n_regions):
@@ -190,10 +186,12 @@ class HistologyPanel(param.Parameterized):
                 y_end = y_start + region_height
                 regions.append([y_start, y_end])
                 colours.append(color_palette[i % len(color_palette)])
+                labels.append([0, "---"])
             
             self._placeholder_hist_data = {
                 "region": regions,
                 "colour": colours,
+                "axis_label": labels
             }
         return self._placeholder_hist_data
 
@@ -241,7 +239,12 @@ class HistologyPanel(param.Parameterized):
         go.Figure
             Plotly figure with histology RGB image and reference lines.
         """
-        hist_data = self.state.hist_data
+        # Select aligned or reference histology based on plot_type
+        if self.plot_type == "aligned":
+            hist_data = self.state.hist_data
+        else:  # "reference"
+            hist_data = self.state.hist_data_ref
+        
         y_range = self._get_y_range()
         
         # Use placeholder data if no real data
@@ -250,78 +253,68 @@ class HistologyPanel(param.Parameterized):
             hist_data = self._get_placeholder_hist_data()
             logger.info(f"Using placeholder histology data (real data not available)")
         else:
-            logger.info(f"Using real histology data with {len(regions)} regions")
-        
-        # Render histology as RGB image
-        img = self._render_histology_to_image(hist_data, y_range)
-
-        logger.debug(f"Creating histology image figure with shape {img.shape}") 
-        
-        # Flip image vertically because Plotly Image trace has origin at top-left
-        # but we want y-axis to increase upward
-        img = np.flip(img, axis=0)
+            logger.info(f"Using {self.plot_type} histology data with {len(regions)} regions")
 
         logger.debug(f"Creating histology figure with y_range {y_range}")
         
         fig = go.Figure()
         
-        # Create physical coordinate arrays for the image
-        n_pixels = img.shape[0]
-        y_coords = np.linspace(y_range[1], y_range[0], n_pixels)  # Top to bottom
-        x_coords = np.array([0, 1])  # Just a narrow bar
-        
-        # Convert RGB image to heatmap format
-        # We'll create a heatmap for each color channel and overlay them
-        # Actually, simpler approach: create colored rectangles for each region directly
-        # But since we already have the rendered image, let's use a different approach:
-        # Convert RGB to a single grayscale value and use custom colorscale
-        
-        # For each pixel row, we'll add it as a thin rectangle with the right color
-        # This is inefficient but allows us to use physical coordinates
-        
-        # Better approach: Use go.Image but with custom x and y arrays
-        # Unfortunately go.Image doesn't support custom coordinates
-        
-        # Best approach: Create a single-pixel-wide heatmap for each row with its color
-        # Let's use a simple heatmap with the RGB data encoded
-        
-        # Convert RGB to grayscale index and create custom colorscale
-        # Actually, let's just use Plotly's ability to display images with coordinates
-        # by creating a list of colored rectangles
-        
         # Get regions and colours from hist_data (already validated above)
         regions = hist_data.get("region", [])
         colours = hist_data.get("colour", [])
+        axis_labels = hist_data.get("axis_label", [])
 
-        
         # Add each brain region as a bar (cannot be edited, unlike shapes)
         # We'll use horizontal bars spanning the full width
-        for i, (region, colour) in enumerate(zip(regions, colours)):
+
+        text_x_positions = []
+        text_y_positions = []
+        text_labels = []
+
+        for i in range(len(regions)):
+            region = regions[i]
+            colour = colours[i]
+            label = axis_labels[i]
+
+            logger.debug(f"Processing region {i}: {region} colour={colour} label={label}")
+            
             if len(region) < 2:
                 continue
+
             y_min, y_max = region[0], region[1]
             y_center = (y_min + y_max) / 2
             height = y_max - y_min
+
+            colour_str = f"rgb({colour[0]},{colour[1]},{colour[2]})"
             
-            if isinstance(colour, (list, tuple)) and len(colour) >= 3:
-                color_str = f"rgb({int(colour[0])},{int(colour[1])},{int(colour[2])})"
-            else:
-                color_str = "rgb(128,128,128)"
-            
+            logger.debug(f"Adding region bar {i}: y=({y_min:.1f},{y_max:.1f}) colour={colour} label={label}")
+
             # Add as a horizontal bar trace
             fig.add_trace(
                   go.Bar(
                     x=[1],  # Width of 1 to span the plot
                     y=[y_center],
                     width=[height],  # Bar height in y-direction
-                    marker=dict(color=color_str, line=dict(width=0)),
+                    marker=dict(color=colour_str, line=dict(width=0)),
                     orientation='h',
                     showlegend=False,
                     base=0,
                     hoverinfo='skip',
                 )
             )
-        
+
+            text_x_positions.append(0.5)  # Centered in x
+            text_y_positions.append(y_center)
+            text_labels.append(label[1])
+
+        fig.add_trace(go.Scatter(
+            x=text_x_positions,
+            y=text_y_positions,
+            mode="text",
+            text=text_labels,
+            textposition="center"
+        ))
+            
         logger.debug(f'Added {len(regions)} region bars')
 
         # Set axis ranges using physical coordinates
@@ -357,7 +350,7 @@ class HistologyPanel(param.Parameterized):
                 colorscale=[[0, "white"], [1, "white"]],
                 showscale=False,
                 hovertemplate="",
-                opacity=1,
+                opacity=0,
                 hoverinfo='none',
             )
         )

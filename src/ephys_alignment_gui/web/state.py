@@ -128,8 +128,13 @@ class AppState(param.Parameterized):
         # Data containers (set after loading)
         self._data: dict | None = None
         self._hist_data: dict | None = None
+        self._hist_data_ref: dict | None = None  # Reference (unaligned) histology
         self._slice_data: dict | None = None
         self._probe_path: Path | None = None
+        
+        # Alignment arrays (track current feature/track correspondence)
+        self._features: "np.ndarray | None" = None
+        self._track: "np.ndarray | None" = None
 
     @property
     def loaddata(self) -> "LoadDataLocal | None":
@@ -169,12 +174,39 @@ class AppState(param.Parameterized):
 
     @property
     def hist_data(self) -> dict | None:
-        """Access the histology data."""
+        """Access the aligned histology data."""
         return self._hist_data
 
     @hist_data.setter
     def hist_data(self, value: dict):
         self._hist_data = value
+
+    @property
+    def hist_data_ref(self) -> dict | None:
+        """Access the reference (unaligned) histology data."""
+        return self._hist_data_ref
+
+    @hist_data_ref.setter
+    def hist_data_ref(self, value: dict):
+        self._hist_data_ref = value
+
+    @property
+    def features(self):
+        """Access the current feature positions array."""
+        return self._features
+
+    @features.setter
+    def features(self, value):
+        self._features = value
+
+    @property
+    def track(self):
+        """Access the current track positions array."""
+        return self._track
+
+    @track.setter
+    def track(self, value):
+        self._track = value
 
     @property
     def slice_data(self) -> dict | None:
@@ -206,8 +238,11 @@ class AppState(param.Parameterized):
         self._plot_data = None
         self._data = None
         self._hist_data = None
+        self._hist_data_ref = None
         self._slice_data = None
         self._probe_path = None
+        self._features = None
+        self._track = None
         logger.info("Session state reset")
 
     def set_status(self, message: str, is_loading: bool = False) -> None:

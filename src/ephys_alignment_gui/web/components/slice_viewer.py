@@ -124,7 +124,7 @@ class SliceViewer(param.Parameterized):
             )
         
         fig.update_xaxes(visible=False, scaleanchor="y", scaleratio=1)
-        fig.update_yaxes(visible=False, autorange="reversed")  # Image coordinates
+        fig.update_yaxes(visible=False)  # Normal Y-axis (not reversed)
         
         fig.update_layout(
             width=250,

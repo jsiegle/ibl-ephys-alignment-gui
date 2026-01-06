@@ -112,52 +112,55 @@ class MainLayout(param.Parameterized):
             logger.warning("Cannot initialize alignment - no atlas data")
             return
 
-        # Get track annotations from loaddata (need to load per shank)
-        shank_idx = self.state.current_shank
-        try:
-            track_annotations = loaddata.get_track_annotations(shank_idx)
-        except Exception as e:
-            logger.warning(f"No track annotations available for alignment: {e}")
-            return
-
-        try:
-            # Initialize EphysAlignment
-            chn_depths = loaddata.chn_coords_all[:, 1] if loaddata.chn_coords_all is not None else None
-            ephys_alignment = EphysAlignment(
-                track_annotations_ras=track_annotations,
-                chn_depths=chn_depths,
-                brain_atlas=loaddata.brain_atlas,
-            )
-            self.state.ephys_alignment = ephys_alignment
-
-            # Initialize alignment history
-            self._track_history = [np.copy(ephys_alignment.track_init)]
-            self._feature_history = [np.copy(ephys_alignment.feature_init)]
-            self._current_align_idx = 0
-
-            # Set initial histology data
-            self._update_histology_data()
-
-            # Load slice data using the interpolated track
+        # Use existing ephys_alignment if already created by data_selection_panel
+        ephys_alignment = self.state.ephys_alignment
+        if ephys_alignment is None:
+            # Create alignment if not already done
+            shank_idx = self.state.current_shank
             try:
-                slice_data, _ = loaddata.get_slice_images(
-                    ephys_alignment.track_interpolation_ras
-                )
-                self.state.slice_data = slice_data
-                logger.info("Slice data loaded successfully")
+                track_annotations = loaddata.get_track_annotations(shank_idx)
             except Exception as e:
-                logger.warning(f"Failed to load slice data: {e}")
-                self.state.slice_data = None
+                logger.warning(f"No track annotations available for alignment: {e}")
+                return
 
-            # Explicitly refresh all visualization components
-            # Note: ephys_plots has its own watcher on data_loaded, but we trigger
-            # explicitly here as a backup in case of async timing issues
-            self.ephys_plots._refresh_counter += 1
-            self.slice_viewer._refresh_counter += 1
+            try:
+                chn_depths = loaddata.chn_coords_all[:, 1] if loaddata.chn_coords_all is not None else None
+                ephys_alignment = EphysAlignment(
+                    track_annotations_ras=track_annotations,
+                    chn_depths=chn_depths,
+                    brain_atlas=loaddata.brain_atlas,
+                )
+                self.state.ephys_alignment = ephys_alignment
+            except Exception as e:
+                logger.exception(f"Failed to initialize EphysAlignment: {e}")
+                return
 
-            logger.info("EphysAlignment initialized successfully")
+        # Initialize alignment history
+        self._track_history = [np.copy(ephys_alignment.track_init)]
+        self._feature_history = [np.copy(ephys_alignment.feature_init)]
+        self._current_align_idx = 0
+
+        # Update histology data (may have been set by data_selection_panel,
+        # but main_layout manages its own history tracking)
+        self._update_histology_data()
+
+        # Load slice data using the interpolated track
+        try:
+            slice_data, _ = loaddata.get_slice_images(
+                ephys_alignment.track_interpolation_ras
+            )
+            self.state.slice_data = slice_data
+            logger.info("Slice data loaded successfully")
         except Exception as e:
-            logger.exception(f"Failed to initialize EphysAlignment: {e}")
+            logger.warning(f"Failed to load slice data: {e}")
+            self.state.slice_data = None
+
+        # Explicitly refresh all visualization components
+        self.ephys_plots._refresh_counter += 1
+        self.slice_viewer._refresh_counter += 1
+        self.histology_panel._refresh_counter += 1
+
+        logger.info("Alignment state initialized successfully")
 
     def _update_histology_data(self) -> None:
         """Update histology data in state from current alignment."""
@@ -318,19 +321,26 @@ class MainLayout(param.Parameterized):
         """Handle reset button click."""
         # Reset alignment to initial state
         if self.state.ephys_alignment is not None:
-            self._track_history = [np.copy(self.state.ephys_alignment.track_init)]
-            self._feature_history = [np.copy(self.state.ephys_alignment.feature_init)]
+            ephys_align = self.state.ephys_alignment
+            self._track_history = [np.copy(ephys_align.track_init)]
+            self._feature_history = [np.copy(ephys_align.feature_init)]
             self._current_align_idx = 0
             self.state.current_idx = 0
             self.state.total_idx = 0
             self._update_histology_data()
+            
+            # Reset probe bounds from alignment track extent (convert m to µm)
+            probe_tip_um = ephys_align.track_extent[0] * 1e6
+            probe_top_um = ephys_align.track_extent[1] * 1e6
+            self.state.probe_tip = probe_tip_um
+            self.state.probe_top = probe_top_um
+            
+            # Reset depth_y_range from probe bounds with padding
+            padding = 100  # µm
+            self.state.depth_y_range = (probe_tip_um - padding, probe_top_um + padding)
 
         # Clear reference lines
         self.reference_lines.clear_lines()
-
-        # Reset probe bounds
-        self.state.probe_tip = 0
-        self.state.probe_top = 3840
 
         logger.info("Alignment reset to initial state")
         self.param.trigger("refresh")
