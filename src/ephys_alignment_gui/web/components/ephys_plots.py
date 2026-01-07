@@ -74,7 +74,9 @@ class EphysPlots(param.Parameterized):
     """
 
     # Internal counter to force refresh when needed
-    _refresh_counter = param.Integer(default=0, precedence=-1)
+    _image_refresh_counter = param.Integer(default=0, precedence=-1)
+    _probe_refresh_counter = param.Integer(default=0, precedence=-1)
+    _line_refresh_counter = param.Integer(default=0, precedence=-1)
 
     # Individual plot type selections
     image_plot_type = param.Selector(
@@ -103,8 +105,6 @@ class EphysPlots(param.Parameterized):
         self.state = state
         self._reference_lines = reference_lines
 
-        self.figure_that_changed = None
-
         # Cache placeholder data (generated once)
         self._placeholder_image_data: dict | None = None
         self._placeholder_line_data: dict | None = None
@@ -119,9 +119,9 @@ class EphysPlots(param.Parameterized):
         state.param.watch(self._on_y_range_changed, "depth_y_range")
 
         # Watch local plot type changes
-        self.param.watch(self._on_plot_type_changed, "image_plot_type")
-        self.param.watch(self._on_plot_type_changed, "line_plot_type")
-        self.param.watch(self._on_plot_type_changed, "probe_plot_type")
+        self.param.watch(self._on_image_plot_type_changed, "image_plot_type")
+        self.param.watch(self._on_line_plot_type_changed, "line_plot_type")
+        self.param.watch(self._on_probe_plot_type_changed, "probe_plot_type")
 
         # Watch reference lines changes if provided
         if reference_lines is not None:
@@ -141,12 +141,13 @@ class EphysPlots(param.Parameterized):
         """Handle data loaded event."""
         if event.new:
             logger.info("EphysPlots: data_loaded event received")
-            self._refresh_counter += 1
+            self._image_refresh_counter += 1
+            self._probe_refresh_counter += 1
+            self._line_refresh_counter += 1
             logging.info("EphysPlots: refresh triggered due to data load")
 
     def _on_y_range_changed(self, event) -> None:
         """Handle Y-range change from another plot (for synchronization)."""
-        #self._refresh_counter += 1
 
         y_range = self.state.depth_y_range
         self.image_fig.update_yaxes(
@@ -172,10 +173,20 @@ class EphysPlots(param.Parameterized):
 
         logging.info("EphysPlots: refresh triggered due to Y-range change")
 
-    def _on_plot_type_changed(self, event) -> None:
-        """Handle plot type change."""
-        self._refresh_counter += 1
-        logging.info(f"EphysPlots: refresh triggered due to plot type change: {event.name}")
+    def _on_line_plot_type_changed(self, event) -> None:
+        """Handle line plot type change."""
+        logger.debug("EphysPlots: line plot type changed")
+        self._line_refresh_counter += 1
+
+    def _on_probe_plot_type_changed(self, event) -> None:
+        """Handle probe plot type change."""
+        logger.debug("EphysPlots: probe plot type changed")
+        self._probe_refresh_counter += 1
+    
+    def _on_image_plot_type_changed(self, event) -> None:
+        """Handle image plot type change."""
+        logger.debug("EphysPlots: image plot type changed")
+        self._image_refresh_counter += 1
 
     @property
     def _plot_data(self) -> PlotData | None:
@@ -786,7 +797,7 @@ class EphysPlots(param.Parameterized):
                 self.state.depth_y_range = (y_min, y_max)
                 logger.debug(f"Updated Y-range to ({y_min:.1f}, {y_max:.1f})")
 
-    @param.depends("_refresh_counter")
+    @param.depends("_image_refresh_counter")
     def image_view(self) -> pn.pane.Plotly:
         """Return the image plot pane.
 
@@ -836,7 +847,7 @@ class EphysPlots(param.Parameterized):
         
         return pane
 
-    @param.depends("_refresh_counter")
+    @param.depends("_line_refresh_counter")
     def line_view(self) -> pn.pane.Plotly:
         """Return the line plot pane.
 
@@ -885,7 +896,7 @@ class EphysPlots(param.Parameterized):
         
         return pane
 
-    @param.depends("_refresh_counter")
+    @param.depends("_probe_refresh_counter")
     def probe_view(self) -> pn.pane.Plotly:
         """Return the probe plot pane.
 

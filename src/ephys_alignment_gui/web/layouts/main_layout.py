@@ -156,9 +156,9 @@ class MainLayout(param.Parameterized):
             self.state.slice_data = None
 
         # Explicitly refresh all visualization components
-        self.ephys_plots._refresh_counter += 1
-        self.slice_viewer._refresh_counter += 1
-        self.histology_panel._refresh_counter += 1
+        #self.ephys_plots._refresh_counter += 1
+        #self.slice_viewer._refresh_counter += 1
+        #self.histology_panel._refresh_counter += 1
 
         logger.info("Alignment state initialized successfully")
 
@@ -374,17 +374,17 @@ class MainLayout(param.Parameterized):
         # which conflict with direct pn.bind usage.
         image_view = pn.bind(
             lambda _1, _2: self.ephys_plots.image_view(),
-            self.ephys_plots.param._refresh_counter,
+            self.ephys_plots.param._image_refresh_counter,
             self.ephys_plots.param.image_plot_type,
         )
         line_view = pn.bind(
             lambda _1, _2: self.ephys_plots.line_view(),
-            self.ephys_plots.param._refresh_counter,
+            self.ephys_plots.param._line_refresh_counter,
             self.ephys_plots.param.line_plot_type,
         )
         probe_view = pn.bind(
             lambda _1, _2: self.ephys_plots.probe_view(),
-            self.ephys_plots.param._refresh_counter,
+            self.ephys_plots.param._probe_refresh_counter,
             self.ephys_plots.param.probe_plot_type,
         )
         hist_view = pn.bind(
