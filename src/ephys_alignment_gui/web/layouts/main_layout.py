@@ -157,7 +157,7 @@ class MainLayout(param.Parameterized):
 
         # Explicitly refresh all visualization components
         #self.ephys_plots._refresh_counter += 1
-        #self.slice_viewer._refresh_counter += 1
+        self.slice_viewer._refresh_counter += 1
         #self.histology_panel._refresh_counter += 1
 
         logger.info("Alignment state initialized successfully")
