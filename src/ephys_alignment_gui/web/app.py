@@ -1,20 +1,3 @@
-"""Main application entry point for the web frontend.
-
-Provides a Panel-based web interface for the ephys alignment tool.
-
-Usage:
-    # Standalone server
-    python -m ephys_alignment_gui.web.app
-
-    # Or via CLI (after installation)
-    launch-web
-
-    # In Jupyter
-    from ephys_alignment_gui.web.app import AlignmentApp
-    app = AlignmentApp()
-    app.view().servable()
-"""
-
 import logging
 
 import panel as pn
@@ -33,62 +16,6 @@ logger = logging.getLogger(__name__)
 
 # Configure Panel
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
-
-# Keyboard shortcut JavaScript
-KEYBOARD_SHORTCUTS_JS = """
-window.addEventListener('keydown', function(e) {
-    // Only handle if not in an input field
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-        return;
-    }
-    
-    switch(e.key) {
-        case 'Enter':
-            // Trigger fit
-            document.dispatchEvent(new CustomEvent('alignment-fit'));
-            e.preventDefault();
-            break;
-        case 'o':
-        case 'O':
-            // Trigger offset
-            document.dispatchEvent(new CustomEvent('alignment-offset'));
-            e.preventDefault();
-            break;
-        case 'ArrowRight':
-            // Next
-            document.dispatchEvent(new CustomEvent('alignment-next'));
-            e.preventDefault();
-            break;
-        case 'ArrowLeft':
-            // Previous
-            document.dispatchEvent(new CustomEvent('alignment-prev'));
-            e.preventDefault();
-            break;
-        case 'r':
-            if (e.ctrlKey || e.metaKey) {
-                // Reset (Ctrl+R)
-                document.dispatchEvent(new CustomEvent('alignment-reset'));
-                e.preventDefault();
-            }
-            break;
-        case 's':
-            if (e.ctrlKey || e.metaKey) {
-                // Save (Ctrl+S)
-                document.dispatchEvent(new CustomEvent('alignment-save'));
-                e.preventDefault();
-            }
-            break;
-        case 'd':
-            if (e.shiftKey) {
-                // Delete line (Shift+D)
-                document.dispatchEvent(new CustomEvent('alignment-delete-line'));
-                e.preventDefault();
-            }
-            break;
-    }
-});
-console.log('Keyboard shortcuts enabled: Enter=Fit, O=Offset, Arrows=Nav, Ctrl+R=Reset, Ctrl+S=Save, Shift+D=Delete');
-"""
 
 
 class AlignmentApp(param.Parameterized):
@@ -118,6 +45,8 @@ class AlignmentApp(param.Parameterized):
 
         # Wire up inter-component communication
         self.selection_panel.param.watch(self._on_data_loaded, "load_requested")
+        self.selection_panel.param.watch(self._on_reset_clicked, "reset_clicked")
+        self.selection_panel.param.watch(self._on_save_clicked, "save_clicked")
 
         logger.info("AlignmentApp initialized")
 
@@ -127,6 +56,15 @@ class AlignmentApp(param.Parameterized):
         # Components are reactive via @param.depends on state parameters
         # They will automatically update when state.data_loaded changes
         # No manual refresh needed
+
+    def _on_reset_clicked(self, event) -> None:
+        """Handle reset event from DataSelectionPanel."""
+        self.main_layout._on_reset_clicked(event)
+
+    def _on_save_clicked(self, event) -> None:
+        """Handle save event from DataSelectionPanel."""
+        # TODO: Implement save functionality
+        logger.info("Save clicked - functionality not yet implemented")
 
     def _create_sidebar(self) -> pn.Column:
         """Create the sidebar with controls."""
@@ -145,21 +83,6 @@ class AlignmentApp(param.Parameterized):
             sizing_mode="stretch_both",
         )
 
-    def _create_keyboard_handler(self) -> pn.pane.HTML:
-        """Create keyboard shortcut handler.
-
-        Returns
-        -------
-        pn.pane.HTML
-            Hidden HTML pane with keyboard handling script.
-        """
-        return pn.pane.HTML(
-            f"<script>{KEYBOARD_SHORTCUTS_JS}</script>",
-            height=0,
-            width=0,
-            sizing_mode="fixed",
-        )
-
     def view(self) -> pn.template.FastListTemplate:
         """Create and return the main application view.
 
@@ -168,12 +91,10 @@ class AlignmentApp(param.Parameterized):
         pn.template.FastListTemplate
             The complete application layout.
         """
-        # Create keyboard handler (injected into sidebar to avoid blank space)
-        keyboard_handler = self._create_keyboard_handler()
 
         template = pn.template.FastListTemplate(
             title="Ephys Alignment GUI",
-            sidebar=[keyboard_handler, self._create_sidebar()],
+            sidebar=[self._create_sidebar()],
             main=[self._create_main_content()],
             accent_base_color="#6B5B95",
             header_background="#6B5B95",
@@ -181,27 +102,3 @@ class AlignmentApp(param.Parameterized):
         )
 
         return template
-
-
-def main():
-    """Main entry point for standalone server."""
-    logger.info("Starting Ephys Alignment GUI web server...")
-
-    app = AlignmentApp()
-
-    pn.config.raise_on_error = True      # surface tracebacks
-    pn.config.exception_handler = None  # don't swallow exceptions
-    pn.config.autoreload = True         # hot reload (like --dev)
-
-    # Serve the application
-    pn.serve(
-        app.view,
-        port=5006,
-        show=True,
-        title="Ephys Alignment GUI",
-        websocket_origin="*",  # Allow connections from any origin for development
-    )
-
-
-if __name__ == "__main__":
-    main()

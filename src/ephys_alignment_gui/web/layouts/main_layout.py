@@ -13,6 +13,7 @@ import param
 from ephys_alignment_gui.core.alignment import EphysAlignment
 from ephys_alignment_gui.web.components.alignment_controls import AlignmentControls
 from ephys_alignment_gui.web.components.ephys_plots import EphysPlots
+from ephys_alignment_gui.web.components.fit_plot import FitPlot
 from ephys_alignment_gui.web.components.histology_panel import HistologyPanel
 from ephys_alignment_gui.web.components.reference_lines import ReferenceLinesManager
 from ephys_alignment_gui.web.components.slice_viewer import SliceViewer
@@ -63,6 +64,7 @@ class MainLayout(param.Parameterized):
         )
         self.slice_viewer = SliceViewer(state)
         self.alignment_controls = AlignmentControls(state)
+        self.fit_plot = FitPlot(state, reference_lines=self.reference_lines)
 
         # Alignment state - arrays for tracking history
         self._track_history: list[np.ndarray] = []
@@ -82,15 +84,13 @@ class MainLayout(param.Parameterized):
 
     def _setup_event_handlers(self) -> None:
         """Set up event handlers for inter-component communication."""
+        print(f"DEBUG: MainLayout._setup_event_handlers, alignment_controls={id(self.alignment_controls)}")
         # Alignment control events
         self.alignment_controls.param.watch(
             self._on_fit_clicked, "fit_clicked"
         )
         self.alignment_controls.param.watch(
             self._on_offset_clicked, "offset_clicked"
-        )
-        self.alignment_controls.param.watch(
-            self._on_reset_clicked, "reset_clicked"
         )
         self.alignment_controls.param.watch(
             self._on_delete_line_clicked, "delete_line_clicked"
@@ -140,14 +140,25 @@ class MainLayout(param.Parameterized):
         self._feature_history = [np.copy(ephys_alignment.feature_init)]
         self._current_align_idx = 0
 
+        # Update state with initial feature/track arrays
+        self.state.features = self._feature_history[0]
+        self.state.track = self._track_history[0]
+
         # Update histology data (may have been set by data_selection_panel,
         # but main_layout manages its own history tracking)
         self._update_histology_data()
 
+        # Update slice viewer
+        self._update_slice_viewer()
+
+        logger.info("Alignment state initialized successfully")
+
+    def _update_slice_viewer(self) -> None:
+        """Refresh the slice viewer."""
         # Load slice data using the interpolated track
         try:
-            slice_data, _ = loaddata.get_slice_images(
-                ephys_alignment.track_interpolation_ras
+            slice_data, _ = self.state.loaddata.get_slice_images(
+                self.state.ephys_alignment.track_interpolation_ras
             )
             self.state.slice_data = slice_data
             logger.info("Slice data loaded successfully")
@@ -155,12 +166,8 @@ class MainLayout(param.Parameterized):
             logger.warning(f"Failed to load slice data: {e}")
             self.state.slice_data = None
 
-        # Explicitly refresh all visualization components
-        #self.ephys_plots._refresh_counter += 1
+        # Explicitly refresh slice viewer
         self.slice_viewer._refresh_counter += 1
-        #self.histology_panel._refresh_counter += 1
-
-        logger.info("Alignment state initialized successfully")
 
     def _update_histology_data(self) -> None:
         """Update histology data in state from current alignment."""
@@ -194,6 +201,8 @@ class MainLayout(param.Parameterized):
 
     def _on_fit_clicked(self, event) -> None:
         """Handle fit button click - apply scaling based on reference lines."""
+        print(f"DEBUG: MainLayout._on_fit_clicked called! event={event}")
+        logger.debug("Fit button clicked")
         ephys_align = self.state.ephys_alignment
         if ephys_align is None:
             logger.warning("No alignment object - cannot fit")
@@ -252,8 +261,15 @@ class MainLayout(param.Parameterized):
         self.state.current_idx = self._current_align_idx
         self.state.total_idx = len(self._track_history) - 1
 
+        # Update state with current feature/track arrays
+        self.state.features = new_features
+        self.state.track = new_track
+
         # Update histology display
         self._update_histology_data()
+
+        # Refresh fit plot
+        self.fit_plot.refresh()
 
         logger.info(f"Fit applied - alignment index now {self._current_align_idx}")
         self.param.trigger("refresh")
@@ -296,7 +312,14 @@ class MainLayout(param.Parameterized):
         self.state.current_idx = self._current_align_idx
         self.state.total_idx = len(self._track_history) - 1
 
+        # Update state with current feature/track arrays
+        self.state.features = prev_features
+        self.state.track = new_track
+
         self._update_histology_data()
+
+        # Refresh fit plot
+        self.fit_plot.refresh()
 
         logger.info(f"Offset applied - alignment index now {self._current_align_idx}")
         self.param.trigger("refresh")
@@ -306,7 +329,11 @@ class MainLayout(param.Parameterized):
         if self._current_align_idx < len(self._track_history) - 1:
             self._current_align_idx += 1
             self.state.current_idx = self._current_align_idx
+            # Update state with feature/track arrays for this history index
+            self.state.features = self._feature_history[self._current_align_idx]
+            self.state.track = self._track_history[self._current_align_idx]
             self._update_histology_data()
+            self.fit_plot.refresh()
             self.param.trigger("refresh")
 
     def _on_prev_clicked(self, event) -> None:
@@ -314,7 +341,11 @@ class MainLayout(param.Parameterized):
         if self._current_align_idx > 0:
             self._current_align_idx -= 1
             self.state.current_idx = self._current_align_idx
+            # Update state with feature/track arrays for this history index
+            self.state.features = self._feature_history[self._current_align_idx]
+            self.state.track = self._track_history[self._current_align_idx]
             self._update_histology_data()
+            self.fit_plot.refresh()
             self.param.trigger("refresh")
 
     def _on_reset_clicked(self, event) -> None:
@@ -327,6 +358,9 @@ class MainLayout(param.Parameterized):
             self._current_align_idx = 0
             self.state.current_idx = 0
             self.state.total_idx = 0
+            # Update state with initial feature/track arrays
+            self.state.features = self._feature_history[0]
+            self.state.track = self._track_history[0]
             self._update_histology_data()
             
             # Reset probe bounds from alignment track extent (convert m to µm)
@@ -341,6 +375,9 @@ class MainLayout(param.Parameterized):
 
         # Clear reference lines
         self.reference_lines.clear_lines()
+
+        # Refresh fit plot
+        self.fit_plot.refresh()
 
         logger.info("Alignment reset to initial state")
         self.param.trigger("refresh")
@@ -468,11 +505,12 @@ class MainLayout(param.Parameterized):
         pn.Column
             Column containing alignment controls.
         """
-        return pn.Column(
-            self.alignment_controls.view(),
-            sizing_mode="stretch_width",
-            min_height=200,
-        )
+        # Return the cached view directly (already a Column)
+        # The view is cached inside AlignmentControls to preserve button instances
+        if self._control_area is None:
+            print(f"DEBUG: _create_control_area, alignment_controls={id(self.alignment_controls)}")
+            self._control_area = self.alignment_controls.view()
+        return self._control_area
     
     def _create_slice_viewer_area(self) -> pn.Column:
         """Create the slice viewer area.
@@ -499,16 +537,20 @@ class MainLayout(param.Parameterized):
         Returns
         -------
         pn.Column
-            Column containing fit plot (if applicable).
+            Column containing fit plot.
         """
-        # Placeholder for fit plot - can be expanded as needed
+        # Wrap fit plot view in pn.bind for reactivity
+        fit_view = pn.bind(
+            lambda _: self.fit_plot.view(),
+            self.fit_plot.param._refresh_counter,
+        )
+
         return pn.Column(
-            pn.pane.Markdown("### Fit Plot"),
-            pn.pane.Markdown("*Fit plot functionality not yet implemented*"),
+            self.fit_plot.controls(),
+            fit_view,
             sizing_mode="stretch_both",
         )
 
-    @param.depends("refresh")
     def view(self) -> pn.GridSpec:
         """Create the main grid layout.
 
@@ -530,9 +572,9 @@ class MainLayout(param.Parameterized):
         grid[0:3, 7:10] = self._create_slice_viewer_area()
 
         # Control area (columns 7-10, rows 4-7)
-        grid[3:7, 7:10] = self._create_control_area()
+        grid[3:5, 7:10] = self._create_control_area()
 
         # Fit area (columns 7-10, rows 7-10)
-        grid[7:10, 7:10] = self._create_fit_area()
+        grid[5:10, 7:10] = self._create_fit_area()
 
         return grid

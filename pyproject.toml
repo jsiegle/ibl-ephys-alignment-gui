@@ -38,7 +38,7 @@ web = [
 
 [project.scripts]
 launch = 'ephys_alignment_gui.desktop.launch_gui:main'
-launch-web = 'ephys_alignment_gui.web.app:main'
+launch-web = 'ephys_alignment_gui.web.launch_gui:main'
 
 [tool.setuptools.packages.find]
 where = ["src"]

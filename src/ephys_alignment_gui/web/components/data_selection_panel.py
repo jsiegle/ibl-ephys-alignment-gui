@@ -37,6 +37,8 @@ class DataSelectionPanel(param.Parameterized):
 
     # Events triggered by user actions
     load_requested = param.Event(doc="Triggered when user clicks Load")
+    reset_clicked = param.Event(doc="Reset button clicked")
+    save_clicked = param.Event(doc="Save button clicked")
 
     def __init__(self, state: AppState, **params):
         super().__init__(**params)
@@ -64,6 +66,26 @@ class DataSelectionPanel(param.Parameterized):
             size=20,
             color="primary",
         )
+        
+        # Reset and Save buttons
+        self._reset_button = pn.widgets.Button(
+            name="Reset",
+            button_type="warning",
+            width=80,
+            disabled=True,  # Disabled until data is loaded
+        )
+        self._save_button = pn.widgets.Button(
+            name="Save",
+            button_type="success",
+            width=80,
+            disabled=True,  # Disabled until data is loaded
+        )
+        # Connect button callbacks using param.watch for reliability
+        self._reset_button.param.watch(self._on_reset_clicked, "clicks")
+        self._save_button.param.watch(self._on_save_clicked, "clicks")
+        
+        # Watch for data loaded state to enable/disable reset/save buttons
+        state.param.watch(self._on_data_loaded_changed, "data_loaded")
         
         # Button created in view() method with reactive disabled state
 
@@ -171,6 +193,10 @@ class DataSelectionPanel(param.Parameterized):
 
             # Trigger event for other components
             self.param.trigger("load_requested")
+            
+            # Enable reset/save buttons
+            self._reset_button.disabled = False
+            self._save_button.disabled = False
 
         except Exception as e:
             logger.exception("Failed to load data")
@@ -224,9 +250,7 @@ class DataSelectionPanel(param.Parameterized):
 
         # Initialize alignment and populate hist_data
         logger.info("Initializing alignment...")
-        from ephys_alignment_gui.core.alignment import EphysAlignment
-        from ephys_alignment_gui.visualization.plot_data import PlotData
-        
+
         # Get track annotations for the current shank
         track_annotations_ras = loaddata.get_track_annotations(shank_idx)
         
@@ -287,6 +311,21 @@ class DataSelectionPanel(param.Parameterized):
         
         logger.info(f"Data loaded successfully from {probe_path}")
 
+    def _on_data_loaded_changed(self, event) -> None:
+        """Enable/disable reset/save buttons based on data load state."""
+        self._reset_button.disabled = not event.new
+        self._save_button.disabled = not event.new
+
+    def _on_reset_clicked(self, event) -> None:
+        """Handle reset button click."""
+        logger.info("Reset button clicked")
+        self.param.trigger("reset_clicked")
+
+    def _on_save_clicked(self, event) -> None:
+        """Handle save button click."""
+        logger.info("Save button clicked")
+        self.param.trigger("save_clicked")
+
     def view(self) -> pn.Column:
         """Return the Panel layout for this component.
 
@@ -323,6 +362,11 @@ class DataSelectionPanel(param.Parameterized):
             pn.Row(
                 button_pane,
                 self._status_indicator,
+                sizing_mode="stretch_width",
+            ),
+            pn.Row(
+                self._reset_button,
+                self._save_button,
                 sizing_mode="stretch_width",
             ),
             sizing_mode="stretch_width",

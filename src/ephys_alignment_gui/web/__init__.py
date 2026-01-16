@@ -19,10 +19,3 @@ Usage:
     app = AlignmentApp()
     app.view().servable()
 """
-
-from ephys_alignment_gui.web.app import AlignmentApp, main
-
-__all__ = [
-    "AlignmentApp",
-    "main",
-]
